@@ -1,0 +1,2 @@
+base_total_eue_mwh,high_total_eue_mwh,eue_in_hours_that_already_failed,eue_in_newly_failing_hours,share_from_new_hours,n_base_failure_cells,n_high_failure_cells,n_new_failure_cells
+112.723,2565.465,1510.531,1054.9340000000002,0.41120576581633356,232,1660,1428

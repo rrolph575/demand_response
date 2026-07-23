@@ -1,0 +1,38 @@
+# Analysis knobs. Everything here is a judgement call; changing a value should
+# change results reproducibly rather than requiring a code edit.
+
+# --- Event detection (stage 03) ---------------------------------------------
+# /eue is a mean over `samples` Monte Carlo draws, so a single failed sample in
+# one draw leaves a tiny nonzero value in an otherwise healthy hour. `eue_eps`
+# is the floor below which an hour is treated as "no event". Event counts move
+# a lot with this; 03 reports a sensitivity sweep over eue_eps_sensitivity.
+eue_eps: 0.1
+eue_eps_sensitivity: [0.01, 0.1, 1.0, 10.0]
+# Bridge gaps of up to this many clean hours when grouping an episode.
+event_gap_h: 1
+
+# --- Time conventions --------------------------------------------------------
+# DR availability windows (/dr_config/avail_hours_et) use a FIXED UTC-5 offset
+# year-round (no DST) for every system, including ERCOT. Hour-of-day analysis
+# that compares against a DR window must use this same convention.
+dr_avail_utc_offset: -5
+# Hours per weather year. hour_idx // hours_per_weather_year -> weather year
+# index; stage 01 verifies this against the parsed timestamp years.
+hours_per_weather_year: 8760
+
+# --- Saturation / knee analysis (stage 04) -----------------------------------
+saturation:
+  # Fractions of total achievable reduction at which to report the required
+  # DR fraction. "Total achievable" = NEUE(f=0) - NEUE(f=max).
+  achieved_pct_targets: [0.5, 0.8, 0.9, 0.95]
+  # A fraction's marginal return counts as "still useful" while it exceeds this
+  # share of the first increment's marginal return.
+  marginal_return_floor: 0.10
+  # Knee criteria to compute and report side by side. They disagree; that
+  # disagreement is informative and is shown rather than resolved.
+  criteria: [kneedle, pct_achieved, marginal_floor]
+
+# --- Reporting ---------------------------------------------------------------
+# Report extremes as aggregates over this many hours rather than single-hour
+# anecdotes; per-hour EUE means are much noisier than the case-level stderr.
+top_hours: 100

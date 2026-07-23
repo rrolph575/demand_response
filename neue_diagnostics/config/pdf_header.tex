@@ -1,0 +1,12 @@
+% Scale every image to text width but never enlarge small ones.
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\makeatother
+\setkeys{Gin}{width=\maxwidth,keepaspectratio}
+% Wide result tables: shrink to fit rather than overflow the margin.
+\usepackage{longtable,booktabs,array}
+\usepackage{float}
+\let\origfigure\figure
+\let\endorigfigure\endfigure
+\renewenvironment{figure}[1][]{\origfigure[H]}{\endorigfigure}
