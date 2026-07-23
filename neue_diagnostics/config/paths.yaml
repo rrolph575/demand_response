@@ -15,23 +15,23 @@ output_dir: outputs
 systems:
   pjm:
     label: PJM
-    results_subdir: pjm/results
-    cases_csv: pjm/cases.csv
+    results_subdir: pjm_neue1/results
+    cases_csv: pjm_neue1/cases.csv
     # UTC offset for "local" time framing in plots (hours). PJM = Eastern.
     # NOTE: separate from the DR availability convention, which is a fixed
     # UTC-5 for ALL systems (see analysis.yaml: dr_avail_utc_offset).
     local_utc_offset: -5
     pras:
-      base: PJM_PRAS_2032i0.pras
-      high: PJM_PRAS_2032i0_eer_central.pras
+      base: PJM_PRAS_2032i0_neue1.pras
+      high: PJM_PRAS_2032i0_neue1_eer_central.pras
   ercot:
     label: ERCOT
-    results_subdir: ercot/results
-    cases_csv: ercot/cases.csv
+    results_subdir: ercot_neue1/results
+    cases_csv: ercot_neue1/cases.csv
     local_utc_offset: -6
     pras:
-      base: ERCOT_PRAS_2032i1.pras
-      high: ERCOT_PRAS_2032i1_eer_central.pras
+      base: ERCOT_PRAS_2032i1_neue1.pras
+      high: ERCOT_PRAS_2032i1_neue1_eer_central.pras
 
 # Python environment used by the slurm wrappers. Verified to contain
 # h5py/numpy/pandas/matplotlib/pyyaml. Deliberately no pyarrow dependency.

@@ -1,259 +1,162 @@
-# Findings — stages 00/01/04a
+# Findings — `neue1` input set
 
-Generated 2026-07-22 from `dr_sweep_results` as of 2026-07-14. All numbers below
-are reproducible with `scripts/00_build_registry.py`, `01_extract_eue.py`,
-`04_saturation.py`. No `.pras` reads, no allocation used.
+Generated 2026-07-23 from the `neue1` PRAS runs
+(`dr_sweep_results/{pjm,ercot}_neue1/results/`, `*_neue1*.pras`). Reproducible with
+`sbatch slurm/run_all.sh`. The headline narrative is in
+[brief_results_summary.md](brief_results_summary.md); this file keeps the detail and
+the data-quality record.
+
+> **Supersedes the first-round findings.** An earlier version of this file described
+> the original PRAS systems, in which ERCOT had zero EUE and PJM's unserved energy
+> was a single-region offshore-wind artifact (p124). The `neue1` systems are far
+> more capacity-constrained and that story does **not** carry over. The old p124
+> diagnosis is preserved in git history (commit before 2026-07-23) if needed.
 
 ---
 
-## 1. ERCOT has zero EUE in every case — there is nothing to explain there
+## 1. Both systems are now heavily stressed; ERCOT is the worse of the two
 
-**All 24 ERCOT cases report exactly 0.0 MWh EUE and 0.0 ppm NEUE**, including
-both baselines. The DR sweep for ERCOT therefore contains no signal: there is no
-reliability event for DR to mitigate, at any fraction, in either datacenter-load
-scenario.
-
-This is physical, not a broken run:
-
-| system | peak load (MW) | available cap @ peak (MW) | reserve margin | mean unit FOR |
+| | base (no DC), NEUE | +DC, no DR, NEUE | +DC EUE (MWh) | growth |
 |---|---:|---:|---:|---:|
-| ERCOT base | 108 081 | 165 196 | **52.8 %** | 0.0028 |
-| ERCOT high | 116 960 | 165 196 | **41.2 %** | 0.0028 |
-| PJM base | 162 403 | 217 889 | 34.2 % | 0.0079 |
-| PJM high | 170 178 | 217 889 | **28.0 %** | 0.0079 |
+| PJM | 1.05 ppm | **59.83 ppm** | 1,003,700 | 61× |
+| ERCOT | 1.00 ppm | **72.12 ppm** | 804,376 | 79× |
 
-The added datacenter load *did* land in ERCOT (+8 879 MW at the peak hour,
-consistent with `load_add_summary.md`), but ERCOT enters 2032 with ~40 % reserve
-margin at peak and a forced-outage rate roughly a third of PJM's. It never runs
-short.
-
-**Consequence:** every downstream question — when does high NEUE happen, which
-region, which weather year, does DR help — is a **PJM-only** question with these
-inputs. Worth deciding whether that is an interesting result in itself (ERCOT's
-2032 buildout absorbs central-case datacenter growth without reliability cost)
-or a reason to re-run ERCOT with a tighter system.
+Both baselines sit near 1 ppm; adding datacenter load raises NEUE 60–80×. Unlike
+the first-round runs (PJM ≈ 0.18 ppm, ERCOT = 0), these are large, absolute
+shortfalls. Reconciliation against `cases.csv` matches for all but 3 PJM cases,
+which are simply absent from ssundar's `cases.csv` (value `nan`) — the `.h5` files
+read fine and are authoritative.
 
 ---
 
-## 2. The EUE data is tiny and extremely concentrated
+## 2. WHERE — EUE tracks the added datacenter load (reversal of the old result)
 
-| | PJM |
-|---|---|
-| `/eue` nonzero cells | **0.066 %** of 131 400 × 19 |
-| hours with any EUE (no-DR, high DC) | 1 659 of 131 400 (**1.26 %**) |
-| nonzero cells in those hours | 1 660 |
+**PJM** (`outputs/tables/pjm_where.csv`): 93 % of EUE is in **p99**, which also
+takes **47 % of the added load** — the most of any region. p99 runs a negative
+mean margin (−7,798 MW). The datacenter load lands on the most capacity-short
+region.
 
-Nonzero cells ≈ nonzero hours (1 660 vs 1 659), meaning **EUE almost never hits
-two regions in the same hour**. Events are overwhelmingly single-region. That is
-a strong hint that these are local/deliverability-constrained events rather than
-system-wide capacity shortfalls — worth confirming against transmission limits in
-stage 02, because it changes the story from "PJM is short of capacity" to "one
-region is short and can't import".
+**ERCOT** (`outputs/tables/ercot_where.csv`): 98 % of EUE is in **p63 / p65 / p64**
+(52 / 25 / 21 %), which take **71 % of the added load**. Counter-example: **p67
+gets the most added load (24 %) but only 1.4 % of the EUE** — it has enough margin
+(min −1,374 MW) to absorb it, while the failing regions run −5 to −15 GW.
 
-Practical consequence: the whole sweep stores as ~139 000 nonzero rows (a 6 MB
-CSV). The earlier "170 million rows" concern was an artifact of a dense
-long-format design, now dropped.
+So datacenter DR is **well-targeted by construction** here: sized to the load, and
+the load is where the risk is. This is the opposite of the first-round PJM run,
+where EUE was concentrated in a region with almost no datacenter load. It does not
+mean DR is *sufficient* (see §6).
 
 ---
 
-## 3. DR saturation — the diminishing-returns question
+## 3. WHY — system-wide capacity shortfalls at extreme net load, after sunset
 
-### Curves flatten gradually; there is no sharp knee at any fraction
+EUE-weighted conditions during failure hours (`outputs/tables/{pjm,ercot}_why.csv`):
 
-| family | mode | NEUE floor (f=1) | % of DC penalty recovered | kneedle knee | f for 80 % of achievable |
+| feature | PJM all-hrs | PJM EUE-wtd | ERCOT all-hrs | ERCOT EUE-wtd |
+|---|---:|---:|---:|---:|
+| net-load percentile | 0.50 | **0.995** | 0.50 | **0.994** |
+| margin percentile | 0.50 | **0.005** | 0.50 | **0.006** |
+| margin (MW) | +4,061 | **−17,464** | +6,327 | **−6,553** |
+| solar CF | 0.227 | 0.035 | 0.299 | 0.020 |
+| wind CF | 0.425 | 0.331 | 0.422 | 0.193 |
+| added load (MW) | 444 | **3,743** | 1,130 | **2,076** |
+
+Failures occur at the extreme top of net load and bottom of margin, with **near-zero
+solar** (evening/overnight) and **elevated datacenter load**. Average margin during
+EUE is deeply negative — the system is short by many GW. **Wind is not the trigger**
+this time (CF only moderately below normal); the driver is total load vs total
+capacity with solar absent after sunset. Contrast the first-round p124 story, which
+was specifically a wind drought.
+
+---
+
+## 4. Chronic, not a few extreme hours; ~half the EUE is in new failure hours
+
+**Concentration** (`outputs/tables/{pjm,ercot}_concentration.csv`, system scope):
+
+| case | top-10 h | top-100 h | hours to 90 % | nonzero hours |
+|---|---:|---:|---:|---:|
+| PJM base | 56 % | 86 % | 195 | 1,884 |
+| PJM +DC, no DR | 10 % | 44 % | **627** | 7,855 |
+| ERCOT base | 86 % | 100 % | 14 | 86 |
+| ERCOT +DC, no DR | 12 % | 66 % | **211** | 1,023 |
+
+Base failures are a few extreme hours; adding datacenter load spreads the deficit
+across hundreds-to-thousands of hours — a sustained seasonal shortfall.
+
+**Delta decomposition** (`outputs/tables/{pjm,ercot}_delta.csv`): **52 % (PJM) /
+54 % (ERCOT) of the high-case EUE is in hours that had none in the base case.** The
+added load creates new scarcity as much as it deepens existing scarcity. The *shape*
+of when EUE occurs shifts substantially (total-variation distance base→high:
+PJM month 0.33 / hour 0.46 / weather-year 0.44; ERCOT 0.43 / 0.62 / 0.72).
+
+---
+
+## 5. DR — effective in PJM, weak in ERCOT, magnitude-limited everywhere
+
+Saturation (`outputs/tables/dr_saturation_summary.csv`), % of DC penalty recovered
+at fraction 1.0:
+
+| family | system | NEUE floor | recovered | kneedle | 80 %-achieved f |
 |---|---|---:|---:|---:|---:|
-| `shift_16h_all` | shift | **0.0932** | **50.5 %** | 0.5 | 0.8 |
-| `shed_16h_all` | shed | 0.1102 | 40.6 % | 0.5 | 0.8 |
-| `shift_8h_all` | shift | 0.1293 | 29.4 % | 0.5 | 0.8 |
-| `shed_8h_all` | shed | 0.1377 | 24.5 % | 0.6 | 0.8 |
-| `shed_4h_all` | shed | 0.1525 | 15.8 % | 0.6 | 0.8 |
-| `shift_4h_all` | shift | 0.1536 | 15.2 % | 0.5 | 0.7 |
+| shed_16h | PJM | 20.64 | **67 %** | 0.3 | 0.4 |
+| shed_8h | PJM | 24.37 | 60 % | 0.3 | 0.4 |
+| shift_16h | PJM | 26.58 | 57 % | 0.3 | 0.4 |
+| shift_8h | PJM | 29.09 | 52 % | 0.3 | 0.4 |
+| shift_4h | PJM | 39.62 | 34 % | 0.3 | 0.3 |
+| shed_4h | PJM | 53.61 | 11 % | 0.5 | 0.6 |
+| shift_8h | ERCOT | 56.23 | **22 %** | 0.4 | 0.7 |
+| shift_4h | ERCOT | 61.40 | 15 % | 0.4 | 0.7 |
 
-Reference points: no DR at high DC load = **0.1796 ppm**; base DC load =
-**0.00856 ppm**. The "DC penalty" is the 0.171 ppm gap between them.
+- **No knee past which DR is wasted** — returns decline smoothly; 80 % of the
+  achievable reduction needs f ≈ 0.4 (PJM) to 0.7 (ERCOT).
+- **Duration beats deployment share** — PJM `shed_4h` recovers 11 %, `shed_16h`
+  recovers 67 %.
+- **Best cases are statistically distinguishable** from their runners-up
+  (`best_distinguishable_indep = True` for PJM `shed_16h` and ERCOT `shift_8h`) —
+  with EUE this large, the increments now clear Monte-Carlo noise.
 
-**The hypothesis that gains stop around 50 % is not supported.** Marginal return
-declines smoothly and monotonically; the geometric knee lands at 0.5–0.6 but the
-curve is still delivering meaningful reduction past it — 80 % of everything
-achievable needs f ≈ 0.7–0.8. There is no fraction beyond which added DR stops
-helping; it just helps progressively less.
+**Every family is magnitude-limited** (`outputs/tables/dr_limit_diagnosis.csv`):
+the always-on shift devices reach `eue_in_window_frac = 1.0` and dispatch enormous
+energy (PJM `shift_16h`: 5.86 M MWh) yet still leave large shortfalls (383,000 MWh).
+DR is used to the hilt; the system is short by more than the datacenter load can
+flex away. This is a genuine magnitude limit, unlike the first-round run where the
+shed families were *window*-limited by a tiny availability overlap.
 
-**Duration matters far more than fraction.** Going 4h → 16h roughly triples the
-benefit (15 % → 50 % of the penalty recovered), while going f=0.5 → f=1.0 within
-a family adds much less. If there is a lever here, it is device duration, not
-deployment share.
+**ERCOT's weaker result is partly an experiment artifact** — its sweep has shift
+only, 4 h and 8 h, no shed and no 16 h. It is under-equipped, so its 22 % is not a
+fair floor on what DR could do there.
 
-**Even the best case recovers only half the penalty.** `shift_16h_all` at f=1.0
-lands at 0.0932 ppm against a 0.00856 ppm base-load target — still ~11× the
-base-case NEUE. DR meaningfully mitigates but does not neutralize the added
-datacenter load in this buildout.
-
-### Why the curves flatten — and it differs by mode
-
-| family | verdict | EUE inside DR window | dispatch per borrow-MW | DR shortfall |
-|---|---|---:|---:|---:|
-| `shed_4h_all` | **dispatch-limited** | **0.08** | 0.040 | 0 |
-| `shed_8h_all` | **window-limited** | 0.16 | 0.061 | 0 |
-| `shed_16h_all` | **window-limited** | 0.26 | 0.100 | 0 |
-| `shift_4h_all` | magnitude-limited | 1.00 | 0.400 | 1 369 MWh |
-| `shift_8h_all` | magnitude-limited | 1.00 | 0.784 | 1 119 MWh |
-| `shift_16h_all` | magnitude-limited | 1.00 | 1.356 | 627 MWh |
-
-This resolves the shed/shift confound flagged in the plan, and the answer is
-decisive: **the shed cases are crippled by their availability windows, not by
-their payback rule.** At f=1.0, only **8 %** of `shed_4h`'s remaining EUE occurs
-during the hours it is allowed to run (16–19 ET). The other 92 % happens when
-its borrow capacity is pinned at zero.
-
-Note the overlap *falls* as fraction rises (see
-`outputs/figures/pjm_availability_overlap.png`): DR removes the EUE it can
-reach, so what survives is increasingly outside the window. That is the
-signature of window-limiting.
-
-**Therefore the apparent "shed vs shift" comparison in this sweep is not a
-comparison of shed vs shift.** Shed is handicapped by a restriction shift does
-not have. Shed should out-perform shift per MW on physics (forgiven energy
-strictly beats rescheduled energy), and instead it under-performs at every
-duration — entirely explained by the window. **To compare the mechanisms, an
-always-on shed run is needed.** That is a config change
-(drop `available_hours_et`), not a code change.
-
-### A caveat on the marginal-return curve
-
-The sweep's fraction grid is uneven — 0.05 steps up to 0.10, then 0.10 steps.
-The first two marginal-return points divide a small ΔNEUE by a small Δf and are
-visibly noisier than the rest (see the non-monotonic left edge of the right-hand
-panel in `pjm_saturation.png`). Knee estimates in f < 0.2 should not be trusted;
-the 0.5–0.6 knees sit in the smooth region and are stable.
-
-More generally: case-level MC stderr is ~1 % of EUE, so NEUE stderr ≈ ±0.0018 —
-**larger than most step-to-step differences**. The curves are nonetheless cleanly
-monotone because all cases share `seed = 14` (common random numbers), which makes
-paired differences far more reliable than independent stderrs imply. The `.h5`
-files do not retain per-sample draws, so this cannot be quantified from the
-outputs alone. If a defensible confidence interval on the increments is needed,
-the sweep would have to be re-run with per-sample output retained.
+**shed-vs-shift is still confounded** (PJM): shed forgives payback but is
+window-restricted. `shed_4h` (4–8 PM ET) sees only 0.4 % of its remaining EUE in
+its window, which is why it is the weakest family despite shed's mechanistic
+advantage. An **always-on shed run** (drop `available_hours_et`) is still needed for
+a clean mechanism comparison.
 
 ---
 
-## 4. Data issues found and handled
+## 6. Data issues found and handled (unchanged — file-format facts)
 
 | Issue | Where | Handling |
 |---|---|---|
-| `/eue` is `(N, R)` in h5py, not `(R, N)` as `usage.md` says | Julia column-major | asserted in `io_results.read_arrays` |
-| `dr_energy`/`dr_shortfall` are **zero-width** `(N, 0)` for baselines, not "zeros" as `usage.md` says | all baseline files | materialized as zeros, flagged via `_synthesized` |
+| `/eue` is `(N, R)` in h5py, not `(R, N)` as `usage.md` says (Julia column-major) | all files | asserted in `io_results.read_arrays`; confirmed against the [PRAS HDF5 spec](https://natlabrockies.github.io/PRAS/stable/SystemModel_HDF5_spec/) |
+| `dr_energy`/`dr_shortfall` are **zero-width** `(N, 0)` for baselines, not "zeros" | baseline files | materialized as zeros, flagged via `_synthesized` |
 | `usage.md` availability table wrong for `shed_16h` (says 12–8 PM; file says 6 AM–9 PM) | `dr_sweep/usage.md` | read from `/dr_config`, never the doc |
-| Archived `experiment_setup.md` peak-added values are ~2.4× the current ones | `archive_eer_central_csv/` | **resolved**: current runs match `load_add_summary.md` (implied 10 162 MW vs 10 167 stated). The archive is a stale vintage. |
-| `case_id` is unique only *within* a system (both have `baseline`) | cross-system joins | all lookups scoped by system; this bug was caught and fixed in stage 01 |
-| Weather-year blocks drift ~1 day earlier per leap year (timestamps contain Feb 29 but blocks are forced to 8760 h) | all files | benign; 672 h affected, all in late December. Use `weather_year` for ReEDS alignment, `calendar_year`/`month` for meteorology. Detected and explained automatically. |
+| `case_id` unique only *within* a system (each has `baseline`) | cross-system joins | all lookups scoped by system |
+| Weather-year blocks drift ~1 day/leap-year (Feb 29 present, blocks forced to 8760 h) | all files | benign; 672 h, all in December. Use `weather_year` for ReEDS alignment, `calendar_year`/`month` for meteorology |
+| Cross-check tolerance was absolute (1 MWh), false-alarmed on the larger `neue1` EUE | `01_extract_eue.py` | changed to relative (1e-3 of largest case); 1.07 MWh diff on 1 M MWh = 0.0001 %, benign |
+| 3 PJM cases (`shift_4h_all_0.80/0.90/1.00`) absent from `cases.csv` | ssundar's merge | `.h5` files authoritative; pipeline reads them fine |
 
 ---
 
-## 5. Attribution — ANSWERED (stages 02 + 03, 2026-07-22)
+## 7. Open items
 
-Stage 02 (`.pras` features) ran in 24 s for PJM / 10 s for ERCOT; stage 03
-(attribution) in seconds. Results are summarized in
-[brief_results_summary.md](brief_results_summary.md); the short version:
-
-- **Where:** 99.0 % of PJM EUE is in **p124**, which receives 0.3 % of the added
-  datacenter load. p99 takes 47 % of the added load and produces 0.9 % of EUE.
-  p124 has a 220 MW peak, **60 MW of firm capacity**, up to 2 611 MW of wind, and
-  only **80 MW of import capability** — the lowest import-to-peak ratio in PJM.
-  The §2 single-region hypothesis is confirmed: this is local deliverability,
-  not system-wide scarcity.
-- **When:** evening/overnight (8 pm–1 am local), winter and summer, nearly
-  nothing in spring.
-- **Why:** EUE-weighted wind CF is **0.005** against an all-hours mean of 0.425;
-  net-load percentile 0.986, margin percentile 0.014. Wind drought in a
-  wind-dependent pocket.
-- **Delta:** **41 % of high-case EUE is in hours that had none in the base case** —
-  new failure modes, not just amplification. Shape shifts substantially by
-  weather year (TVD 0.45) and month (0.43), much less by hour of day (0.22).
-- **DR targeting:** in the best case, p124's **30 MW** device delivers 1 210 of
-  the 1 234 MWh total reduction (98 %); the other ~10 100 MW deployed elsewhere do
-  almost nothing. But p124 is **maxed out and still short** — flexing 100 % of its
-  datacenter load leaves 1 332 MWh EUE and 627 MWh DR-shortfall. Because DR here IS
-  datacenter flexibility, the risk region can only flex the 30 MW of datacenter
-  load it has, and the idle DR elsewhere cannot be reallocated: it is that region's
-  own load, and p124's 80 MW tie caps external help regardless. **Datacenter DR
-  structurally cannot close p124's gap.** (An earlier framing — "DR sized to
-  adequacy need would do more per MW" — was withdrawn as unsupported: you cannot
-  manufacture datacenter-DR where there is little datacenter load.)
-
-### p124 — structural diagnosis
-
-| | |
-|---|---|
-| transmission | **one radial tie** to p123: 80 MW in / 336 MW out |
-| offshore wind | **2 536 MW** vs a 220 MW peak load (11.5×) |
-| firm generation | 60 MW across 22 o-g-s units; 12 are 0 MW, most others 1–2 MW |
-| battery | 426 MWh / 148 MW = 2.9 h |
-| **VRE stranded** | **116 TWh = 69.6 %** of everything it generates |
-| hours generating more than it can use or export | 66 % |
-| hours short after imports | 2 603 (2.0 %), max residual only **55 MW** |
-| residual-deficit episodes | 853; **386 exceed the battery's 2.9 h** |
-
-Mechanism: a wind drought longer than ~3 h in a zone with 60 MW of real
-generation behind an 80 MW tie. The deficits are shallow (≤55 MW) and long, which
-is exactly why a 30 MW DR device covers most of them.
-
-**Confirmed: EUE lives entirely in the low tail of p124's wind output.**
-
-- **100 % of p124 EUE hours have wind ≤ 77 MW** (capacity 2 611 MW, all-hours
-  median 1 009 MW). Median wind during EUE hours: **4 MW**.
-- Only 14 % of EUE hours have wind at exactly 0; 97 % are ≤ 50 MW and carry
-  99.8 % of the energy. So: drought, not literal zero.
-- firm (60) + import (80) = **140 MW servable without wind** against a median
-  EUE-hour load of 150 MW and a max of 207 MW. p124 needs ~70 MW of wind — 2.7 %
-  of installed — to close the gap. That threshold is exactly why no EUE hour
-  exceeds 77 MW of wind.
-- Given wind == 0 (790 h over 15 wy), 29.5 % of those hours produce EUE.
-
-**The stranded-wind observation is therefore a red herring for adequacy** — only
-the bottom ~3 % of the wind distribution matters.
-
-Two failure modes, and the split is worth keeping straight:
-
-| mode | hours | share of EUE | mean EUE/h |
-|---|---:|---:|---:|
-| capacity-short (load > firm+import+VRE) | 628 (38 %) | **72 %** | 2.90 MWh |
-| outage-driven (nameplate adequate) | 1 013 (62 %) | 28 % | 0.71 MWh |
-
-Since `/eue` is a mean over 1000 samples, an hour can carry small positive EUE
-even when nameplate capacity covers load, because a minority of draws lose part
-of the 60 MW firm fleet or the tie. Most EUE *hours* are of this type; most EUE
-*energy* is not. Figure: `outputs/figures/pjm_critical_region.png`.
-
-**Not a translation artifact.** Two hypotheses were tested and both failed:
-
-1. *Missing interconnection to the offshore wind.* Wrong — the plant is inside
-   p124, so none is needed, and 336 MW of export capacity exists. Direction
-   convention confirmed against the
-   [PRAS HDF5 spec](https://natlabrockies.github.io/PRAS/stable/SystemModel_HDF5_spec/):
-   `forwardcapacity` runs `region_from`→`region_to`.
-2. *The 80/336 asymmetry is anomalous.* Wrong — **all 41 PJM lines are
-   asymmetric, zero symmetric**; p124's 4.2× ratio is mild against p110|p118's
-   13.2×. Directional ratings are just how ReEDS transmission translates.
-
-The spec also confirms rows = timesteps, columns = entities, i.e. `(N, R)` in
-h5py — so `usage.md`'s `(R, N)` is the Julia column-major view, as asserted in §4.
-
-**Most likely explanation: policy-forced capacity.** The ReEDS scenario is
-`high_currentpolicy_central`; current policy includes state offshore-wind
-mandates. ReEDS must build the 2 536 MW regardless of deliverability, and absent
-a co-optimized tie the outcome is exactly what is observed — mandated offshore
-wind, ~70 % curtailed, in a BA with 60 MW of firm capacity. Expected model
-behavior under a binding constraint, not a defect.
-
-**Interpretation:** the p124 result is real *within the model* but narrow. It
-says a small coastal BA meeting an OSW mandate is thin on firm capacity behind a
-small tie, and ~30 MW of datacenter load tips it. It does **not** support a claim
-that PJM broadly has a datacenter-driven adequacy problem.
-
-### Open items
-
-- **Confirm the ReEDS run shows comparable p124 curtailment.** If it does, this
-  is settled as expected behavior. Every aggregate PJM number in this study is
-  effectively a statement about this one zone, so the framing matters.
-- **Always-on shed run** to make the shed-vs-shift mechanism comparison valid.
-- **ERCOT re-run** against a tighter system, or accept the null result.
+- **ERCOT shed / 16 h run.** ERCOT's 22 % recovery is capped by an incomplete DR
+  toolkit, not necessarily by the system. Needed before concluding ERCOT is harder
+  to help than PJM.
+- **Always-on shed run** to disentangle the shed-vs-shift confound (PJM).
+- **What changed between the first-round and `neue1` systems?** NEUE jumped ~330×
+  (PJM) and 0→72 ppm (ERCOT). Worth confirming the intended capacity-mix difference
+  (e.g. retirements, lower reserve margin) rather than an input error, since it
+  drives every result here. `scripts/90_verify_pras_delta.py` can diff old vs new
+  `.pras` if that comparison is wanted.

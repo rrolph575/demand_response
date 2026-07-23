@@ -2,7 +2,16 @@
 
 **PJM and ERCOT, ReEDS model year 2032 · PRAS · 15 weather years (2007–2021) ×
 1000 Monte Carlo samples**
-Prepared 2026-07-22 · reproducible via `scripts/00`–`04`, see [README.md](README.md)
+Input set: `neue1` (a more stressed capacity mix than the earlier runs — see note).
+Prepared 2026-07-23 · reproducible via `sbatch slurm/run_all.sh`, see [README.md](README.md)
+
+> **Note on inputs.** These results use the `neue1` PRAS systems
+> (`{PJM,ERCOT}_PRAS_2032*_neue1*.pras`). They are far more capacity-constrained
+> than the first-round systems: PJM's no-DR NEUE is ~330× higher than before and
+> ERCOT — previously zero — now has the larger reliability problem of the two.
+> An earlier version of this document described the first-round systems, in which
+> ERCOT had no unserved energy and PJM's was a single-region artifact. That story
+> does not carry over; this is a different, much tighter system.
 
 ---
 
@@ -30,302 +39,177 @@ added load and to the DR — not to different generation. The question being ans
 is deliberately narrow: **can flexible datacenter load substitute for generation
 that was never built?**
 
-92 PRAS runs in total: 68 PJM, 24 ERCOT.
+92 PRAS runs in total: 68 PJM (shed + shift × {4,8,16} h × 11 fractions), 24 ERCOT
+(shift only × {4,8} h × 11 fractions).
 
 ---
 
 ## Headline results
 
-### 1. ERCOT shows no reliability impact at all
+### 1. Both systems are heavily stressed; ERCOT is now the worse of the two
 
-All 24 ERCOT runs report **exactly zero** unserved energy — both baselines and
-every DR case. This is not a failed run: the added load is present (+8 879 MW at
-peak), but ERCOT enters 2032 with ~41 % reserve margin at peak against PJM's 28 %,
-and a mean forced-outage rate about a third of PJM's. It simply never runs short.
-
-**Everything below is therefore PJM only.**
-
-### 2. Datacenter load raises PJM's NEUE 21×
-
-| case | NEUE (ppm) | EUE (MWh over 15 weather years) |
-|---|---:|---:|
-| base demand, no DR | 0.0086 | 113 |
-| **+ datacenter load, no DR** | **0.1796** | **2 565** |
-| + datacenter load, best DR (`shift_16h`, 100 %) | 0.0932 | 1 332 |
-
-Even the best DR case leaves NEUE ~11× above the base-demand level. **DR
-meaningfully mitigates but does not neutralize the added load.**
-
-For context, PJM's reliability standard is conventionally 1 day in 10 years; all
-of these NEUE values are small in absolute terms. The story here is the *relative*
-change and *where* it lands.
-
-### 3. Nearly all of it is one small region
-
-![where](outputs/figures/pjm_where.png)
-
-**99.0 % of PJM's unserved energy occurs in region p124**, which receives only
-**0.3 % of the added datacenter load**. Meanwhile p99 absorbs 47 % of the added
-load and contributes 0.9 % of the EUE.
-
-p124 is a small, wind-dependent, weakly-connected pocket:
-
-| p124 | value |
-|---|---:|
-| peak load | 220 MW |
-| firm (non-VRE) capacity | **60 MW** |
-| wind capacity | up to 2 611 MW |
-| storage | 148 MW |
-| **import capability** | **80 MW** (lowest ratio to peak load in PJM) |
-| hours with negative local margin | 11.2 % |
-| hours negative *even with full imports* | 2.0 % |
-
-So p124 covers a 220 MW peak with 60 MW of firm capacity, leaning on wind it
-cannot replace and cannot import around. Adding ~30 MW of datacenter load — a 14 %
-increase on its peak — pushes it over. **This is a local deliverability problem
-that datacenter load exposed, not a system-wide capacity shortfall.**
-
-Consistent with that: only **1 % of the 248 outage episodes involve more than one
-region**. These are isolated local events, not correlated system-wide scarcity.
-
-#### p124 fails only in the low tail of its own wind output
-
-![critical region](outputs/figures/pjm_critical_region.png)
-
-**100 % of p124's EUE occurs when its wind output is ≤ 77 MW**, against 2 611 MW
-of capacity and an all-hours median of 1 009 MW. Median wind during EUE hours is
-**4 MW**. Only 14 % of EUE hours have wind at exactly zero, but 97 % are at or
-below 50 MW and those carry 99.8 % of the energy — so the driver is a wind
-*drought*, not literal zero.
-
-The arithmetic closes exactly:
-
-| | MW |
-|---|---:|
-| firm capacity (constant) | 60 |
-| import limit | 80 |
-| **servable without wind** | **140** |
-| load during EUE hours | median 150, max 207 |
-
-p124 is short by ~10 MW at median load and ~67 MW at peak, so it needs roughly
-**70 MW of wind — 2.7 % of its installed capacity** — to close the gap, or the
-battery until it drains at 2.9 h. That threshold is why no EUE hour ever has more
-than 77 MW of wind. Given wind at exactly zero (790 h over 15 weather years),
-29.5 % of those hours produce EUE; the rest are covered by storage or low load.
-
-**This makes the stranded-wind observation a red herring for adequacy.** The
-2.5 GW is irrelevant to reliability except through the bottom ~3 % of its output
-distribution. It also explains why a 30 MW DR device covers so much of the gap:
-the deficit is genuinely shallow.
-
-Two distinct failure modes appear, and the split matters:
-
-| | hours | share of EUE | mean EUE/hour |
+| | base (no DC) | **+ datacenter load, no DR** | best DR case |
 |---|---:|---:|---:|
-| **capacity-short** (load > firm + import + VRE) | 628 (38 %) | **72 %** | 2.90 MWh |
-| **outage-driven** (nameplate adequate; forced-outage tail) | 1 013 (62 %) | 28 % | 0.71 MWh |
+| **PJM** | 1.05 ppm | **59.8 ppm** (1,003,700 MWh) | 20.6 ppm — `shed_16h` @ 100 % |
+| **ERCOT** | 1.00 ppm | **72.1 ppm** (804,376 MWh) | 56.2 ppm — `shift_8h` @ 100 % |
 
-Because `/eue` is a *mean over 1000 Monte Carlo samples*, an hour can carry a
-small positive expectation even when nameplate capacity covers load — a minority
-of draws lose part of the 60 MW firm fleet or the tie. Most hours are of this
-type, but they contribute little energy; the real damage is the 628
-genuinely-short hours.
+Adding datacenter load raises NEUE **61× in PJM and 79× in ERCOT**. These are large
+reliability shortfalls in absolute terms, not the marginal signals of the earlier
+runs. Both systems are genuinely short of capacity once the datacenter load arrives.
 
-#### Structural detail
+### 2. EUE lands where the datacenter load lands — the opposite of the earlier runs
 
-| p124 structure | |
-|---|---|
-| transmission | a **single radial tie** to p123: **80 MW in, 336 MW out** |
-| offshore wind | **2 536 MW** — 11.5× the zone's own peak load |
-| onshore wind / solar | 75 MW / 97 MW |
-| firm generation | 22 oil-gas-steam units totalling **60 MW**; twelve are 0 MW, most of the rest are 1–2 MW |
-| battery | 426 MWh / 148 MW = **2.9 h** |
+![PJM where](outputs/figures/pjm_where.png)
 
-The arithmetic fails in both directions:
+**PJM: 93 % of the unserved energy is in region p99**, which also receives **47 %
+of the added datacenter load** — the most of any region. p99 runs a *negative*
+average margin (−7,798 MW; its capacity is below its load on average), so the
+datacenter load lands squarely on the most capacity-short region.
 
-- **Outbound:** 167 TWh of VRE generated against 19.9 TWh of local load, behind
-  336 MW of export capacity. **116 TWh (69.6 %) is stranded** — in 66 % of all
-  hours p124 produces more than it can consume or ship out.
-- **Inbound:** 11.2 % of hours have load above VRE + firm; after the 80 MW import
-  limit, 2 603 hours (2.0 %) remain short. Those deficits are **shallow but long**
-  — a 55 MW maximum, but **386 of 853 episodes outrun the battery's 2.9 h**.
+![ERCOT where](outputs/figures/ercot_where.png)
 
-That last line is the mechanism behind every PJM result in this study: a wind
-drought lasting more than about three hours, in a zone with 60 MW of real
-generation behind an 80 MW tie. It also explains why a mere 30 MW DR device is so
-effective there — the deficit never exceeds 55 MW.
+**ERCOT: 98 % of the EUE is in three regions — p63, p65, p64** (52 %, 25 %, 21 %),
+which together take **71 % of the added load**. The one exception is instructive:
+**p67 receives the most added load (24 %) but produces only 1.4 % of the EUE**,
+because it carries enough margin to absorb it (minimum margin −1,374 MW vs
+−5,000 to −15,000 MW in the failing regions).
 
-**This is not a translation bug.** Two tempting explanations were checked and both
-fail:
+So in these systems datacenter DR is **well-targeted by construction** — it is
+sized to the load, and the load is where the risk is. Whether it is *sufficient*
+is a separate question (§6). This is the key reversal from the first-round runs,
+where EUE was concentrated in a region with almost no datacenter load.
 
-- *"The offshore wind's interconnection is missing."* No — the plant sits inside
-  p124, so no interconnection to it is required, and p124 exports through the
-  336 MW backward capacity on its tie. Confirmed against the
-  [PRAS HDF5 spec](https://natlabrockies.github.io/PRAS/stable/SystemModel_HDF5_spec/):
-  `forwardcapacity` is `region_from`→`region_to`, so the p123→p124 line gives
-  p124 80 MW in and 336 MW out.
-- *"The 80/336 asymmetry is anomalous."* No — **all 41 PJM lines are asymmetric,
-  none symmetric.** Directional ratings are simply how ReEDS transmission
-  translates into PRAS. p124's 4.2× ratio is unremarkable next to p110|p118's 13×.
+### 3. The failures are system-wide capacity shortfalls, not local pockets
 
-So p124 is genuinely capacity-deficient **in the modeled system**, and that is a
-real property of what ReEDS built rather than an artifact of the PRAS conversion.
+![PJM conditions](outputs/figures/pjm_conditions.png)
 
-The likely explanation is policy, not error. The ReEDS scenario is
-`high_currentpolicy_central`, and current policy includes **state offshore-wind
-mandates**. ReEDS would be obliged to build that 2 536 MW regardless of
-deliverability; if it did not co-optimize a matching tie, the result is exactly
-what is observed — policy-driven offshore wind, ~70 % of it curtailed, in a
-balancing area with 60 MW of firm capacity. Ordinary model behavior under a
-binding constraint.
-
-**What this means for interpretation:** the result is real within the model, but
-narrow. It says a small coastal BA meeting an offshore-wind mandate has thin firm
-capacity behind a small tie, and ~30 MW of datacenter load tips it over. It does
-**not** say PJM at large has a datacenter-driven adequacy problem.
-
-Worth confirming: does the ReEDS run itself show comparable curtailment in p124?
-If so, this is settled as expected behavior rather than a data issue.
-
-### 4. The failures are low-wind, high-net-load evening hours
-
-![conditions](outputs/figures/pjm_conditions.png)
-
-| condition | all hours | during EUE (EUE-weighted) |
+| condition (PJM) | all hours | during EUE (EUE-weighted) |
 |---|---:|---:|
-| regional net-load percentile | 0.50 | **0.986** |
-| regional margin percentile | 0.50 | **0.014** |
-| wind capacity factor | 0.425 | **0.005** |
-| solar capacity factor | 0.227 | 0.032 |
+| regional net-load percentile | 0.50 | **0.995** |
+| regional margin percentile | 0.50 | **0.005** |
+| regional margin (MW) | +4,061 | **−17,464** |
+| solar capacity factor | 0.227 | 0.035 |
+| wind capacity factor | 0.425 | 0.331 |
+| added datacenter load (MW) | 444 | **3,743** |
 
-The wind number is the mechanism. In a region that depends on wind for capacity,
-EUE occurs when wind output is at **half a percent** of its maximum. Events cluster
-in evening and overnight hours (peaking 8 pm–1 am local), split between winter and
-summer, with essentially nothing in spring.
+EUE occurs at the extreme top of net load and the extreme bottom of margin, in
+hours with **near-zero solar** (evenings and nights) and **elevated datacenter
+load**. The average margin during EUE hours is **−17 GW** — the system is short by
+many gigawatts, not by tens of megawatts. ERCOT is the same pattern (margin
+percentile 0.006, solar CF 0.02, EUE-hour added load 2,076 MW vs 1,130 all-hours).
 
-### 5. Adding datacenter load moves the problem, not just its size
+Unlike the earlier runs, wind is **not** the trigger — wind CF during EUE hours is
+0.33 (PJM) / 0.19 (ERCOT), only moderately below normal. The driver is total load
+against total capacity, with solar absent because the failures are after sunset.
 
-![when](outputs/figures/pjm_when.png)
+### 4. Datacenter load creates as many new failure hours as it worsens
 
-Comparing *normalized* distributions between the base and high scenarios (total
-variation distance; 0 = identical shape):
+| | base EUE | high EUE | share in *newly*-failing hours |
+|---|---:|---:|---:|
+| PJM | 16,477 MWh | 1,003,700 MWh | **52 %** |
+| ERCOT | 10,168 MWh | 804,376 MWh | **54 %** |
 
-| dimension | shift |
-|---|---:|
-| weather year | 0.45 |
-| month | 0.43 |
-| hour of day | 0.22 |
+About half of the added unserved energy falls in hours (and regions) that had
+**no** EUE in the base case. So the datacenter load is not merely deepening
+existing scarcity — it is creating new scarcity in previously-adequate hours.
+Consistent with this, the shape of *when* EUE occurs shifts substantially
+(total-variation distance base→high of 0.33–0.46 for PJM, 0.43–0.72 for ERCOT).
 
-Weather-year and seasonal patterns change substantially — **41 % of the high case's
-EUE occurs in hours that had none at all in the base case**. So the added load is
-not simply scaling up existing bad hours; it is creating new failure hours in
-different weather years and seasons. Hour-of-day shifts much less, which fits a
-local capacity deficit rather than a change in daily shape.
+### 5. The problem is chronic, not a handful of extreme hours
 
-### 6. DR helps, gradually, with no useful cut-off point
+| case | EUE in top 10 h | in top 100 h | hours to reach 90 % | nonzero hours |
+|---|---:|---:|---:|---:|
+| PJM base | 56 % | 86 % | 195 | 1,884 |
+| **PJM +DC, no DR** | 10 % | 44 % | **627** | 7,855 |
+| ERCOT base | 86 % | 100 % | 14 | 86 |
+| **ERCOT +DC, no DR** | 12 % | 66 % | **211** | 1,023 |
 
-![saturation](outputs/figures/pjm_saturation.png)
+In the base cases the unserved energy is a few extreme hours. Adding datacenter
+load **spreads it across hundreds to thousands of hours** — it takes 627 of the
+worst PJM hours to reach 90 % of the total. This is a sustained seasonal capacity
+deficit, which is exactly the kind of problem sustained DR can chip at.
 
-| DR family | NEUE floor at 100 % | share of datacenter penalty recovered |
-|---|---:|---:|
-| **shift 16 h** | **0.0932** | **50.5 %** |
-| shed 16 h | 0.1102 | 40.6 % |
-| shift 8 h | 0.1293 | 29.4 % |
-| shed 8 h | 0.1377 | 24.5 % |
-| shed 4 h | 0.1525 | 15.8 % |
-| shift 4 h | 0.1536 | 15.2 % |
+### 6. DR helps materially in PJM, weakly in ERCOT — and is magnitude-limited everywhere
 
-There is **no sharp knee** — no fraction past which added DR stops helping. Returns
-decline smoothly; reaching 80 % of everything achievable needs a DR fraction of
-roughly 0.7–0.8.
+![PJM saturation](outputs/figures/pjm_saturation.png)
 
-**Device duration matters far more than deployment share.** Going 4 h → 16 h roughly
-triples the benefit; raising the fraction within a family does much less.
+| DR family | system | NEUE floor at 100 % | share of DC penalty recovered |
+|---|---|---:|---:|
+| **shed 16 h** | PJM | 20.6 ppm | **67 %** |
+| shed 8 h | PJM | 24.4 ppm | 60 % |
+| shift 16 h | PJM | 26.6 ppm | 57 % |
+| shift 8 h | PJM | 29.1 ppm | 52 % |
+| shift 4 h | PJM | 39.6 ppm | 34 % |
+| shed 4 h | PJM | 53.6 ppm | 11 % |
+| **shift 8 h** | ERCOT | 56.2 ppm | **22 %** |
+| shift 4 h | ERCOT | 61.4 ppm | 15 % |
 
-**Most of that benefit comes from 30 MW in the right place — and it is not
-enough.** In the best case, p124's 30 MW DR device delivers 1 210 MWh of the total
-1 234 MWh reduction (98 %). The other ~10 100 MW of DR spread across the system
-contribute almost nothing, because those regions have almost no EUE to fix. But
-p124 is not over-served — it is **maxed out and still short**: at 100 % deployment
-it still has **1 332 MWh of EUE remaining and 627 MWh of DR-shortfall** (DR called
-but unavailable). See the caveat below on why this cannot simply be "reallocated".
+PJM's best case buys back **two-thirds** of the datacenter penalty — DR is
+genuinely effective here because it is well-targeted (§2) and the deficits, though
+large, are spread over many hours it can address. ERCOT recovers only **~22 %**,
+but that is partly because ERCOT's sweep only includes **shift**, only **4 h and
+8 h** — no shed, no 16 h. It is under-equipped in the experiment, not necessarily
+in principle.
 
-### 7. The shed-vs-shift comparison in this sweep is not valid
+**Every family is magnitude-limited** (`outputs/tables/dr_limit_diagnosis.csv`).
+The always-on shift devices are fully dispatched — PJM's `shift_16h` moves
+5.9 million MWh — yet still leave a 383,000 MWh shortfall. DR is being used to the
+hilt; the system is simply short by more than the datacenter load can flex away.
+There is **no knee past which more DR is wasted**; returns decline smoothly and
+80 % of the achievable reduction needs a fraction of ~0.4 (PJM) to ~0.7 (ERCOT).
 
-![overlap](outputs/figures/pjm_availability_overlap.png)
+**Duration still beats deployment share.** Within PJM, moving from 4 h to 16 h
+devices matters far more than raising the fraction — `shed_4h` recovers 11 % while
+`shed_16h` recovers 67 %.
 
-Shed and shift differ in **two** ways at once — shed forgives the payback (an
-advantage) but is restricted to a daily window (a handicap). They push in opposite
-directions, so the comparison cannot be read as-is.
+### 7. The shed-vs-shift comparison remains confounded (PJM)
 
-Measuring the share of each case's remaining EUE that falls inside its own DR
-window settles it: at 100 % deployment, only **8 %** of `shed_4h`'s EUE occurs when
-it is allowed to run. Shed is losing on availability, not on mechanism. The overlap
-*declines* as deployment rises — DR removes the EUE it can reach, so what survives
-is increasingly outside the window.
+![PJM availability overlap](outputs/figures/pjm_availability_overlap.png)
 
-**An always-on shed run is needed to compare the mechanisms.** That is a config
-change (drop `available_hours_et`), not new code.
+As before, shed differs from shift in two ways at once — forgiven payback (an
+advantage) and a restricted daily availability window (a handicap). The window
+handicap is visible: `shed_4h` operates only 4–8 PM ET and only **0.4 %** of its
+remaining EUE falls in that window, which is why it is the weakest family despite
+shed's mechanistic advantage. A clean comparison still needs an **always-on shed
+run** (drop `available_hours_et`) — a config change, not new code.
 
 ---
 
 ## What this means
 
-1. **The binding constraint is local, not systemic.** PJM's added datacenter load
-   did not stress the system as a whole; it exposed one small wind-dependent region
-   with 60 MW of firm capacity and 80 MW of import capability. Whether p124 is a
-   genuine reliability concern or an artifact of regional aggregation in
-   ReEDS/reeds2pras **should be checked before this result is used** — a 220 MW
-   region holding 2.6 GW of wind is unusual.
+1. **Datacenter load, on this tighter grid, is a first-order adequacy problem in
+   both systems.** NEUE rises 60–80× and the deficit is chronic and system-wide,
+   averaging many GW short during failure hours.
 
-2. **Datacenter DR structurally cannot fix p124 — and this is the key
-   limitation.** The DR modeled here *is* flexible datacenter load, so a region can
-   only flex the datacenter load it actually has. p124 — the sole region at risk —
-   has just 30 MW of datacenter load, and even flexing 100 % of it leaves p124 with
-   1 332 MWh of unserved energy and 627 MWh of unmet DR demand. The risk region is
-   not over-served with misallocated DR; it is starved of it. The ~10 100 MW of
-   idle DR elsewhere cannot help, for two independent reasons: (a) it is *that
-   region's* datacenter load, physically located there and not relocatable to p124;
-   and (b) p124's binding constraint is its **80 MW import tie**, which caps any
-   external help regardless of how much surplus the rest of PJM has. This is a
-   transmission-local deficit, not a system-wide generation shortfall, so no amount
-   of DR anywhere else touches it.
+2. **DR is well-targeted here and materially effective in PJM (−67 % of the
+   penalty), but it cannot close the gap** because the shortfall exceeds what the
+   flexible datacenter load can supply — every family is magnitude-limited. DR is a
+   substantial mitigation, not a substitute for the generation that was not built.
 
-   *(An earlier draft claimed DR "sized to adequacy need rather than datacenter
-   megawatts would do far more per MW." That is not supported: within this study DR
-   comes only from datacenter load, and the risk region has too little of it to
-   meet its own need. Closing p124's gap would require flexibility beyond its
-   datacenter load or relief of the tie — neither of which this study varies.)*
+3. **ERCOT looks worse than PJM partly because its DR toolkit in this sweep is
+   thinner** (shift-only, ≤8 h). Whether ERCOT is genuinely harder to help or just
+   under-equipped needs a shed / 16 h run before drawing a conclusion.
 
-3. **Duration beats quantity.** If there is a design lever in these results, it is
-   longer-duration flexibility, not more of it.
-
-4. **ERCOT's null result is itself informative** — that buildout absorbs
-   central-case datacenter growth without measurable reliability cost.
+4. **Duration beats quantity.** Longer-duration flexibility is the stronger lever
+   than a higher deployment fraction.
 
 ---
 
 ## Caveats
 
-- **Monte Carlo noise.** Case-level standard error is ~1 % of EUE, so NEUE stderr is
-  about ±0.0018 — *larger* than most step-to-step differences along the DR sweep.
-  The curves are smooth because all cases share a random seed (common random
-  numbers), making paired differences more reliable than the individual error bars
-  imply. This cannot be quantified from the saved outputs, which do not retain
-  per-sample draws. **Treat single-increment differences as indicative, not
-  significant.**
-- **One region drives everything.** With 99 % of EUE in p124, every aggregate PJM
-  statistic here is effectively a statement about p124. Conclusions are only as
-  robust as that region's representation.
+- **Monte Carlo noise.** Case-level standard error is ~1 % of EUE. With these much
+  larger EUE values the DR-sweep increments are now comfortably resolved (the best
+  PJM and ERCOT cases are flagged statistically distinguishable from their
+  runners-up), but single-increment differences should still be read as indicative.
 - **Same buildout by construction.** Generation was not re-optimized for the higher
-  load. These results describe what happens if datacenter load arrives *without* a
-  supply response — not what a planner would actually build.
-- **Event counts depend on a threshold.** Episode counts range from 294 to 7 as the
-  EUE floor moves from 0.01 to 10 MWh (`pjm_eps_sensitivity.csv`). Totals are
-  robust; counts are not.
+  load; these results describe datacenter load arriving *without* a supply
+  response, which is the intended experiment, not a forecast.
+- **ERCOT's DR sweep is incomplete** relative to PJM's (no shed, no 16 h), so
+  cross-system DR comparisons are not apples-to-apples.
 - **The DR device is regional, not datacenter-specific.** It is *sized* from
-  datacenter load, but PRAS reduces total regional load when it operates — it does
-  not track whose megawatt-hour is whose.
+  datacenter load but PRAS reduces total regional load when it operates.
+- **Event counts depend on a threshold** (`*_eps_sensitivity.csv`); totals are
+  robust, counts are not.
 
 ---
 
@@ -333,12 +217,12 @@ change (drop `available_hours_et`), not new code.
 
 | Output | Path |
 |---|---|
-| Figures | `outputs/figures/pjm_{where,when,conditions,worst_event,saturation,availability_overlap,case_ranking,return_per_mw}.png` |
-| Regional attribution | `outputs/tables/pjm_where.csv` |
-| Timing | `outputs/tables/pjm_when.csv`, `pjm_shape_shift.csv` |
-| Event conditions | `outputs/tables/pjm_why.csv` |
-| New vs amplified failures | `outputs/tables/pjm_delta.csv` |
-| Episodes | `outputs/tables/pjm_events.csv`, `pjm_concentration.csv`, `pjm_eps_sensitivity.csv` |
+| Figures (per system) | `outputs/figures/{pjm,ercot}_{where,when,conditions,worst_event,saturation,availability_overlap,case_ranking,return_per_mw}.png` |
+| Regional attribution | `outputs/tables/{pjm,ercot}_where.csv` |
+| Timing / shape shift | `outputs/tables/{pjm,ercot}_when.csv`, `_shape_shift.csv` |
+| Event conditions | `outputs/tables/{pjm,ercot}_why.csv` |
+| New vs amplified failures | `outputs/tables/{pjm,ercot}_delta.csv` |
+| Concentration / episodes | `outputs/tables/{pjm,ercot}_concentration.csv`, `_events.csv`, `_eps_sensitivity.csv` |
 | DR saturation | `outputs/tables/dr_saturation_{curves,summary}.csv`, `dr_limit_diagnosis.csv` |
 | Case registry | `cache/registry.csv` |
 

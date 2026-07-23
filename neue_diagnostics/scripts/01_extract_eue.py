@@ -169,10 +169,16 @@ def main() -> int:
         )
         diff = (tot - summary.reindex(tot.index)).abs()
         worst = diff.max()
+        # Judge the discrepancy RELATIVE to the case magnitude: summing hundreds
+        # of thousands of float32 cells accumulates rounding that scales with the
+        # total, so a fixed absolute tolerance false-alarms once EUE is large.
+        scale = max(summary.abs().max(), 1.0)
+        rel = worst / scale
         print(
-            f"  cross-check vs /summary/eue_mean_mwh: max abs diff = {worst:.4g} MWh"
+            f"  cross-check vs /summary/eue_mean_mwh: max abs diff = {worst:.4g} MWh "
+            f"({rel:.2e} of the largest case)"
         )
-        if worst > 1.0:
+        if rel > 1e-3 and worst > 1.0:
             print("  WARNING: per-region EUE does not sum to the case summary")
 
     return 0
