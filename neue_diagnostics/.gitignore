@@ -1,5 +1,4 @@
 cache/
-outputs/figures/*.png
 slurm/logs/
 __pycache__/
 *.pyc
