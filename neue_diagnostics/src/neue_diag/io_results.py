@@ -23,7 +23,11 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-SCHEMA_VERSION_SUPPORTED = {"1"}
+# Schema 2 (e.g. shed_1h_timeseries) adds extra timeseries datasets (/flow,
+# /storages, /storage_energy, /dr_devices, /interfaces) alongside the schema-1
+# datasets this pipeline reads. The standard datasets are unchanged, so both
+# versions are supported; the extras are simply ignored.
+SCHEMA_VERSION_SUPPORTED = {"1", "2"}
 
 MATRIX_DATASETS = ("eue", "dr_energy", "dr_shortfall")
 

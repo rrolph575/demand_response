@@ -50,7 +50,7 @@ that was never built?**
 
 | | base (no DC) | **+ datacenter load, no DR** | best DR case |
 |---|---:|---:|---:|
-| **PJM** | 1.05 ppm | **59.8 ppm** (1,003,700 MWh) | 20.6 ppm — `shed_16h` @ 100 % |
+| **PJM** | 1.05 ppm | **59.8 ppm** (1,003,700 MWh) | 5.96 ppm — `shed_1h` always-on @ 100 % |
 | **ERCOT** | 1.00 ppm | **72.1 ppm** (804,376 MWh) | 56.2 ppm — `shift_8h` @ 100 % |
 
 Adding datacenter load raises NEUE **61× in PJM and 79× in ERCOT**. These are large
@@ -135,21 +135,29 @@ deficit, which is exactly the kind of problem sustained DR can chip at.
 
 | DR family | system | NEUE floor at 100 % | share of DC penalty recovered |
 |---|---|---:|---:|
-| **shed 16 h** | PJM | 20.6 ppm | **67 %** |
-| shed 8 h | PJM | 24.4 ppm | 60 % |
+| **shed 1 h, always-on** | PJM | **5.96 ppm** | **92 %** |
+| shed 16 h (windowed) | PJM | 20.6 ppm | 67 % |
+| shed 8 h (windowed) | PJM | 24.4 ppm | 60 % |
 | shift 16 h | PJM | 26.6 ppm | 57 % |
 | shift 8 h | PJM | 29.1 ppm | 52 % |
 | shift 4 h | PJM | 39.6 ppm | 34 % |
-| shed 4 h | PJM | 53.6 ppm | 11 % |
+| shed 4 h (windowed) | PJM | 53.6 ppm | 11 % |
 | **shift 8 h** | ERCOT | 56.2 ppm | **22 %** |
 | shift 4 h | ERCOT | 61.4 ppm | 15 % |
 
-PJM's best case buys back **two-thirds** of the datacenter penalty — DR is
-genuinely effective here because it is well-targeted (§2) and the deficits, though
-large, are spread over many hours it can address. ERCOT recovers only **~22 %**,
-but that is partly because ERCOT's sweep only includes **shift**, only **4 h and
-8 h** — no shed, no 16 h. It is under-equipped in the experiment, not necessarily
-in principle.
+The standout is the **always-on 1-hour shed at 100 %**, which recovers **92 %** of
+the datacenter penalty (NEUE 5.96 vs 59.8) — near-complete mitigation, and far
+above any windowed case. It never runs short (zero DR shortfall): being always
+available, it can drop the added load in whatever hour the system is tight. This
+single case (a standalone run, not part of the fraction sweep) is what §7 uses to
+separate the shed mechanism from the availability window.
+
+Among the *swept* families, PJM's best buys back **two-thirds** of the penalty —
+DR is genuinely effective here because it is well-targeted (§2) and the deficits,
+though large, are spread over many hours it can address. ERCOT recovers only
+**~22 %**, but that is partly because ERCOT's sweep only includes **shift**, only
+**4 h and 8 h** — no shed, no 16 h. It is under-equipped in the experiment, not
+necessarily in principle.
 
 **Every family is magnitude-limited** (`outputs/tables/dr_limit_diagnosis.csv`).
 The always-on shift devices are fully dispatched — PJM's `shift_16h` moves
@@ -162,16 +170,33 @@ There is **no knee past which more DR is wasted**; returns decline smoothly and
 devices matters far more than raising the fraction — `shed_4h` recovers 11 % while
 `shed_16h` recovers 67 %.
 
-### 7. The shed-vs-shift comparison remains confounded (PJM)
+### 7. Shed vs shift, now disentangled by the always-on shed run
+
+The windowed sweep confounded two things — shed forgives the payback (an
+advantage) but was restricted to a daily availability window (a handicap). The
+new always-on shed run separates them:
+
+| comparison | availability | mechanism | recovered |
+|---|---|---|---|
+| `shed_1h` | **always-on** | shed (1 h) | **92 %** |
+| `shed_16h` | windowed (6 AM–9 PM) | shed (16 h) | 67 % |
+| `shift_16h` | always-on | shift (16 h) | 57 % |
+
+Two clean reads fall out:
+
+- **The window, not the mechanism, crippled the swept shed cases.** Always-on
+  shed recovers 92 % vs windowed shed's 67 % — a 25-point gap, even though the
+  always-on case has *less* energy (1 h vs 16 h). For shed, duration barely
+  matters (the energy is forgiven), so the difference is almost entirely the
+  window. Confirmed by the overlap diagnostic: `shed_4h` (4–8 PM ET) sees only
+  **0.4 %** of its remaining EUE inside its window.
+- **Shed beats shift on mechanism, decisively.** Comparing the two *always-on*
+  cases, shed at just 1 h recovers 92 % while shift at 16 h recovers 57 %.
+  Permanently dropping load is far more valuable for adequacy than rescheduling
+  it, because the rescheduled energy has to come back — often into another tight
+  hour.
 
 ![PJM availability overlap](outputs/figures/pjm_availability_overlap.png)
-
-As before, shed differs from shift in two ways at once — forgiven payback (an
-advantage) and a restricted daily availability window (a handicap). The window
-handicap is visible: `shed_4h` operates only 4–8 PM ET and only **0.4 %** of its
-remaining EUE falls in that window, which is why it is the weakest family despite
-shed's mechanistic advantage. A clean comparison still needs an **always-on shed
-run** (drop `available_hours_et`) — a config change, not new code.
 
 ---
 
@@ -181,10 +206,13 @@ run** (drop `available_hours_et`) — a config change, not new code.
    both systems.** NEUE rises 60–80× and the deficit is chronic and system-wide,
    averaging many GW short during failure hours.
 
-2. **DR is well-targeted here and materially effective in PJM (−67 % of the
-   penalty), but it cannot close the gap** because the shortfall exceeds what the
-   flexible datacenter load can supply — every family is magnitude-limited. DR is a
-   substantial mitigation, not a substitute for the generation that was not built.
+2. **How much DR helps depends sharply on its form.** Always-on shed nearly
+   closes the PJM gap (92 % recovered); the windowed swept families recover only
+   a third to two-thirds, and always-on shift 57 %. The two levers that matter are
+   **availability** (always-on beats windowed) and **mechanism** (shed beats
+   shift) — not deployment fraction, which saturates early. A DR program that can
+   drop load in any hour approaches a substitute for the missing generation; one
+   restricted to a daily window or to load-shifting does not.
 
 3. **ERCOT looks worse than PJM partly because its DR toolkit in this sweep is
    thinner** (shift-only, ≤8 h). Whether ERCOT is genuinely harder to help or just

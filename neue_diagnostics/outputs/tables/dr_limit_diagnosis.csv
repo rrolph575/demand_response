@@ -1,5 +1,6 @@
 system,case_family,dr_mode,dr_avail_hours_et,eue_in_window_frac_at_max,dr_energy_at_max_mwh,dr_shortfall_at_max_mwh,dispatch_per_borrow_mw,marginal_dispatch_per_marginal_mw,verdict
 pjm,shed_16h_all,shed,"[6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]",0.02919205627563587,662326.736,0.0,65.14475617192879,13.855566456940615,window-limited
+pjm,shed_1h_timeseries,shed,[],1.0,907975.9339999999,0.0,89.30618019081341,,magnitude-limited
 pjm,shed_4h_all,shed,"[16,17,18,19]",0.0036919513916342235,108813.238,14.476,10.702590538015146,4.1214109319701135,magnitude-limited
 pjm,shed_8h_all,shed,"[12,13,14,15,16,17,18,19]",0.02099475375440776,599669.51,3.251,58.98195239500345,11.827731419583182,magnitude-limited
 pjm,shift_16h_all,shift,[],1.0,5855986.870999999,382800.19499999995,575.9798240385561,288.1741112858827,magnitude-limited

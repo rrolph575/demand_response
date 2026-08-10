@@ -23,13 +23,33 @@ def build_time_index(
     hours_per_weather_year: int = 8760,
     local_utc_offset: int = 0,
     dr_avail_utc_offset: int = -5,
+    weather_years=None,
 ) -> pd.DataFrame:
-    """Build the hour_idx -> calendar/weather-year lookup, with validation."""
+    """Build the hour_idx -> calendar/weather-year lookup, with validation.
+
+    `weather_years`, if given, is the ordered list of TRUE weather years for the
+    successive 8760-hour blocks. Use it when the PRAS timestamps mislabel the
+    sampled years -- e.g. the neue1 runs are stamped 2007-2021 but actually skip
+    2014 and 2015, so the true sequence is 2007..2013, 2016..2023. Each block i
+    is then labeled weather_years[i]; otherwise the label is the calendar year
+    that dominates the block's timestamps.
+    """
     ts = pd.to_datetime(pd.Series([str(t) for t in timestamps]), utc=True, format="ISO8601")
     n = len(ts)
 
     hour_idx = np.arange(n, dtype=np.int64)
     wy_index = hour_idx // hours_per_weather_year
+
+    if weather_years is not None:
+        n_blocks = int(wy_index.max()) + 1
+        if len(weather_years) != n_blocks:
+            raise ValueError(
+                f"weather_years has {len(weather_years)} entries but there are "
+                f"{n_blocks} weather-year blocks ({n} h / {hours_per_weather_year})"
+            )
+        wy_labels = np.array([int(weather_years[i]) for i in wy_index])
+    else:
+        wy_labels = _weather_year_labels(ts, wy_index)
 
     local = ts + pd.Timedelta(hours=local_utc_offset)
     dr_local = ts + pd.Timedelta(hours=dr_avail_utc_offset)
@@ -39,7 +59,7 @@ def build_time_index(
             "hour_idx": hour_idx,
             "timestamp_utc": ts.values,
             "weather_year_index": wy_index,
-            "weather_year": _weather_year_labels(ts, wy_index),
+            "weather_year": wy_labels,
             "calendar_year": ts.dt.year.values,
             "month": ts.dt.month.values,
             "day_of_year": ts.dt.dayofyear.values,
@@ -77,7 +97,8 @@ def _season(month: np.ndarray) -> np.ndarray:
     return out
 
 
-def validate_time_index(df: pd.DataFrame, hours_per_weather_year: int = 8760) -> list[str]:
+def validate_time_index(df: pd.DataFrame, hours_per_weather_year: int = 8760,
+                        weather_years_overridden: bool = False) -> list[str]:
     """Return a list of human-readable warnings; empty means clean."""
     warnings_out = []
     n = len(df)
@@ -88,6 +109,18 @@ def validate_time_index(df: pd.DataFrame, hours_per_weather_year: int = 8760) ->
             f"weather-year blocks will be ragged "
             f"(remainder {n % hours_per_weather_year} h)"
         )
+
+    if weather_years_overridden:
+        # weather_year was set from the config's true-year list on purpose, so it
+        # deliberately differs from the timestamps' calendar_year -- skip that check.
+        counts = df.groupby("weather_year").size()
+        odd = counts[counts != hours_per_weather_year]
+        if len(odd):
+            warnings_out.append(
+                f"weather years without exactly {hours_per_weather_year} h: "
+                f"{odd.to_dict()}"
+            )
+        return warnings_out
 
     # Positional weather year vs. the year actually in the timestamps.
     #

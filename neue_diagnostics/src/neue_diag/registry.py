@@ -133,6 +133,17 @@ def build_registry(cfg, system: str) -> pd.DataFrame:
     if not files:
         raise FileNotFoundError(f"no *.h5 files under {results_dir}")
 
+    # Optional per-system skip list (config: systems.<sys>.exclude). Matches on
+    # the file stem, so `baseline_zero_dr` drops baseline_zero_dr.h5. Used to
+    # leave out files that are in the results dir but not part of the sweep.
+    exclude = set(system_cfg.get("exclude", []) or [])
+    if exclude:
+        kept = [f for f in files if f.stem not in exclude]
+        dropped = [f.stem for f in files if f.stem in exclude]
+        if dropped:
+            print(f"  excluded (config): {sorted(dropped)}")
+        files = kept
+
     rows, axes_ref = [], None
 
     for path in files:

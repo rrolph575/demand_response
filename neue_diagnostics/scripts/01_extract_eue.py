@@ -43,14 +43,20 @@ def extract_system(cfg, system: str, registry: pd.DataFrame) -> dict:
     sys_cfg = cfg.system(system)
     hpwy = cfg.analysis.get("hours_per_weather_year", 8760)
 
+    wyears = cfg.analysis.get("weather_years")  # true years (skips 2014/2015)
     _, timestamps = io_results.read_axes(rows.iloc[0]["path"])
     tindex = timeaxis.build_time_index(
         timestamps,
         hours_per_weather_year=hpwy,
         local_utc_offset=sys_cfg.get("local_utc_offset", 0),
         dr_avail_utc_offset=cfg.analysis.get("dr_avail_utc_offset", -5),
+        weather_years=wyears,
     )
-    for msg in timeaxis.validate_time_index(tindex, hpwy):
+    if wyears:
+        print(f"  weather_year relabeled from config: {wyears}")
+    for msg in timeaxis.validate_time_index(
+        tindex, hpwy, weather_years_overridden=bool(wyears)
+    ):
         print(f"  TIME WARNING: {msg}")
 
     wy = tindex["weather_year"].to_numpy()

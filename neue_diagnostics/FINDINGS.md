@@ -99,14 +99,19 @@ at fraction 1.0:
 
 | family | system | NEUE floor | recovered | kneedle | 80 %-achieved f |
 |---|---|---:|---:|---:|---:|
-| shed_16h | PJM | 20.64 | **67 %** | 0.3 | 0.4 |
-| shed_8h | PJM | 24.37 | 60 % | 0.3 | 0.4 |
+| **shed_1h (always-on)** | PJM | **5.96** | **92 %** | n/a¹ | n/a¹ |
+| shed_16h (windowed) | PJM | 20.64 | 67 % | 0.3 | 0.4 |
+| shed_8h (windowed) | PJM | 24.37 | 60 % | 0.3 | 0.4 |
 | shift_16h | PJM | 26.58 | 57 % | 0.3 | 0.4 |
 | shift_8h | PJM | 29.09 | 52 % | 0.3 | 0.4 |
 | shift_4h | PJM | 39.62 | 34 % | 0.3 | 0.3 |
-| shed_4h | PJM | 53.61 | 11 % | 0.5 | 0.6 |
+| shed_4h (windowed) | PJM | 53.61 | 11 % | 0.5 | 0.6 |
 | shift_8h | ERCOT | 56.23 | **22 %** | 0.4 | 0.7 |
 | shift_4h | ERCOT | 61.40 | 15 % | 0.4 | 0.7 |
+
+¹ `shed_1h_timeseries` is a single standalone run at fraction 1.0 (always-on,
+schema-2 file with extra flow/storage timeseries), not a swept family — so it has
+no knee. It is the highest-recovery case by a wide margin.
 
 - **No knee past which DR is wasted** — returns decline smoothly; 80 % of the
   achievable reduction needs f ≈ 0.4 (PJM) to 0.7 (ERCOT).
@@ -127,11 +132,25 @@ shed families were *window*-limited by a tiny availability overlap.
 only, 4 h and 8 h, no shed and no 16 h. It is under-equipped, so its 22 % is not a
 fair floor on what DR could do there.
 
-**shed-vs-shift is still confounded** (PJM): shed forgives payback but is
-window-restricted. `shed_4h` (4–8 PM ET) sees only 0.4 % of its remaining EUE in
-its window, which is why it is the weakest family despite shed's mechanistic
-advantage. An **always-on shed run** (drop `available_hours_et`) is still needed for
-a clean mechanism comparison.
+**shed-vs-shift — now disentangled by `shed_1h` (always-on).** The swept shed
+families were confounded (shed forgives payback *and* was window-restricted). The
+standalone always-on shed run separates the two effects:
+
+- *Window, not mechanism, crippled the swept shed cases.* Always-on shed recovers
+  **92 %** vs windowed `shed_16h`'s 67 % — a 25-pt gap despite the always-on case
+  carrying *less* energy (1 h vs 16 h). For shed, duration barely matters (energy
+  forgiven), so the gap is essentially the window. `shed_4h` (4–8 PM ET) sees only
+  0.4 % of its EUE inside its window.
+- *Shed beats shift on mechanism.* Comparing the two **always-on** cases, shed at
+  1 h recovers 92 % while shift at 16 h recovers 57 %. Permanent load reduction is
+  far more valuable for adequacy than shifting, whose payback re-lands in other
+  tight hours.
+
+Note `shed_1h` has **zero DR shortfall** — always-on, it is never exhausted, so
+its residual 5.96 ppm is what remains *after* the full added load can be dropped in
+any hour: the base system's own scarcity plus hours where even removing all added
+load leaves a deficit. It is the closest thing here to DR substituting for the
+missing generation.
 
 ---
 

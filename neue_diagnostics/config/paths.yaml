@@ -17,6 +17,12 @@ systems:
     label: PJM
     results_subdir: pjm_neue1/results
     cases_csv: pjm_neue1/cases.csv
+    # Files in results/ that are NOT part of the high-DC sweep (matched on stem).
+    # baseline_zero_dr is a BASE-DC zero-DR control (NEUE 1.10, ~= baseline.h5);
+    # keeping it would create a second base-DC no-DR reference and make stage 04's
+    # DC-penalty math ambiguous. shed_1h_timeseries is NOT excluded -- it is a real
+    # high-DC sensitivity (always-on 100% shed, schema 2).
+    exclude: [baseline_zero_dr]
     # UTC offset for "local" time framing in plots (hours). PJM = Eastern.
     # NOTE: separate from the DR availability convention, which is a fixed
     # UTC-5 for ALL systems (see analysis.yaml: dr_avail_utc_offset).
