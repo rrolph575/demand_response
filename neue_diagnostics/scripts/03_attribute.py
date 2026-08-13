@@ -51,15 +51,61 @@ def feature_at(feats, name, hour_idx, region_pos):
     return feats[name][hour_idx, region_pos]
 
 
+def replot_system(cfg, system, registry):
+    """Redraw the attribution figures from a prior run's saved artifacts.
+
+    Loads only the small tables (where/when/why/events), the two per-hour
+    reference frames (hi/ba), and the stage-02 feature npz -- none of the slow
+    nonzero merge, feature scatter-lookups, or aggregations the full run does.
+    Lets a styling/title edit regenerate in ~a second. Raises FileNotFoundError
+    if a full run hasn't produced the inputs yet.
+    """
+    reg = registry[registry["system"] == system]
+    refs = reg[reg["is_reference"]]
+    if reg["neue_ppm"].fillna(0).abs().max() == 0:
+        print("  no EUE in any case; nothing to attribute. Skipping.")
+        return []
+    ref_high = refs[refs["dc_scenario"] == "high"].iloc[0]["case_id"]
+    ref_base = refs[refs["dc_scenario"] == "base"].iloc[0]["case_id"]
+
+    feats, scal, regions = load_features(cfg, system)
+    where = pd.read_csv(cfg.table_path(f"{system}_where.csv"))
+    when = pd.read_csv(cfg.table_path(f"{system}_when.csv"))
+    why = pd.read_csv(cfg.table_path(f"{system}_why.csv"))
+    ev = pd.read_csv(cfg.table_path(f"{system}_events.csv"))
+    hi = pd.read_csv(cfg.cache_path("attr", f"{system}_hi.csv"))
+    ba = pd.read_csv(cfg.cache_path("attr", f"{system}_ba.csv"))
+    return plots_attr.make_all(
+        cfg, system, where, when, why, hi, ba, ev, feats, scal, regions,
+        ref_high, ref_base,
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=None)
     ap.add_argument("--system", default=None)
+    ap.add_argument(
+        "--replot", action="store_true",
+        help="redraw figures from the tables a previous full run saved, "
+             "skipping the (slow) recompute. Use after editing a plot's "
+             "styling/title; run without it after the inputs or analysis change.",
+    )
     args = ap.parse_args()
 
     cfg = load_config(paths_yaml=args.config)
     registry = pd.read_csv(cfg.cache_path("registry.csv"))
     systems = [args.system] if args.system else cfg.system_names()
+
+    if args.replot:
+        for system in systems:
+            print(f"\n=== {system} (replot) ===")
+            try:
+                for p in replot_system(cfg, system, registry):
+                    print(f"  figure: {p}")
+            except FileNotFoundError as e:
+                print(f"  skipped: {e}. Run a full stage 03 first.")
+        return 0
 
     for system in systems:
         print(f"\n=== {system} ===")
@@ -103,6 +149,11 @@ def main() -> int:
 
         hi = nz[nz["case_id"] == ref_high]
         ba = nz[nz["case_id"] == ref_base]
+        # Persist the two per-hour reference frames so figures can be redrawn
+        # (scripts/03_attribute.py --replot) without repeating the nonzero merge
+        # and feature lookups above -- a title tweak shouldn't recompute anything.
+        hi.to_csv(cfg.cache_path("attr", f"{system}_hi.csv"), index=False)
+        ba.to_csv(cfg.cache_path("attr", f"{system}_ba.csv"), index=False)
 
         # ---- a. WHERE -----------------------------------------------------
         added_summary = pd.read_csv(cfg.table_path(f"{system}_added_load_summary.csv"))
@@ -140,8 +191,21 @@ def main() -> int:
         )
 
         # ---- b. WHEN ------------------------------------------------------
+        # base/high references, plus any config-listed DR cases that exist for
+        # this system (overlaid as lines on the figure). Each scenario is
+        # normalized to its own EUE, so the plot compares SHAPE not level.
+        when_scenarios = [("base", ba), ("high", hi)]
+        overlay_cases = cfg.analysis.get("when_overlay_cases", []) or []
+        present = set(reg["case_id"])
+        for cid in overlay_cases:
+            if cid in present:
+                sub = nz[nz["case_id"] == cid]
+                if len(sub):
+                    when_scenarios.append((cid, sub))
+            else:
+                print(f"  WHEN overlay: {cid} not in {system}; skipping")
         when_rows = []
-        for label, d in (("base", ba), ("high", hi)):
+        for label, d in when_scenarios:
             for dim in ("weather_year", "month", "hour_local", "season"):
                 agg = d.groupby(dim)["eue"].sum()
                 total = agg.sum()

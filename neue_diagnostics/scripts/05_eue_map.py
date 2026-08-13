@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-"""Stage 05 (standalone): choropleth map of mean EUE per region.
+"""Stage 05 (standalone): choropleth map of EUE per region.
 
-Colors each ReEDS "p" region by its mean EUE over the whole timeseries
-(total EUE / n_timesteps, MWh per hour) for a chosen case, one map per system.
+Colors each ReEDS "p" region by its EUE per year -- expected unserved energy in
+an average weather year (total EUE / n_weather_years, MWh/yr) -- for a chosen
+case, one map per system. Pass --metric for mean-per-hour, total, or NEUE.
 
 Needs only stage 00 + 01 output (cache/registry.csv, cache/rollups/*_region.csv)
 plus the ReEDS PCA shapefile. Reads no .pras files. Runs in a few seconds on a
@@ -11,7 +12,7 @@ login node; a slurm wrapper is provided if you prefer to batch it.
     python scripts/05_eue_map.py                       # all systems, default case
     python scripts/05_eue_map.py --system pjm
     python scripts/05_eue_map.py --case shed_16h_all_1.00
-    python scripts/05_eue_map.py --metric neue_ppm     # or total_eue_mwh
+    python scripts/05_eue_map.py --metric neue_ppm     # or mean_eue_mwh, total_eue_mwh
 
 Default case is each system's high-DC, no-DR reference
 (baseline_with_load_added) -- the reliability signal DR is trying to reduce.
@@ -68,7 +69,13 @@ def region_values(cfg, system: str, case: str, metric: str) -> pd.DataFrame:
         pd.read_csv(cfg.cache_path("registry.csv"))
         .query("system == @system")["n_timesteps"].iloc[0]
     )
+    # n_ts = n_weather_years * hours_per_weather_year (15 * 8760 here). EUE per
+    # year -- expected unserved energy in an average weather year, MWh/yr -- is
+    # the standard resource-adequacy framing and is what the map defaults to.
+    hpwy = int(cfg.analysis.get("hours_per_weather_year", 8760))
+    n_years = max(n_ts / hpwy, 1)
     roll["mean_eue_mwh"] = roll["eue_mwh"] / n_ts
+    roll["eue_mwh_per_year"] = roll["eue_mwh"] / n_years
 
     load = pd.read_csv(cfg.table_path(f"{system}_where.csv"))[["region", "load_mwh"]]
     roll = roll.merge(load, on="region", how="left")
@@ -77,10 +84,12 @@ def region_values(cfg, system: str, case: str, metric: str) -> pd.DataFrame:
 
     if metric not in roll.columns:
         raise SystemExit(f"unknown --metric {metric!r}")
-    return roll[["region", "mean_eue_mwh", "total_eue_mwh", "neue_ppm"]]
+    return roll[["region", "eue_mwh_per_year", "mean_eue_mwh",
+                 "total_eue_mwh", "neue_ppm"]]
 
 
 METRIC_LABELS = {
+    "eue_mwh_per_year": "EUE (MWh / year)",
     "mean_eue_mwh": "mean EUE (MWh / hour)",
     "total_eue_mwh": "total EUE (MWh over timeseries)",
     "neue_ppm": "NEUE (ppm)",
@@ -130,7 +139,7 @@ def make_map(cfg, system, case, metric, shapefile: Path, suffix: str = "",
     plt.close(fig)
 
     tbl = cfg.table_path(f"{system}_region_mean_eue{suffix}.csv")
-    vals.sort_values("mean_eue_mwh", ascending=False).to_csv(tbl, index=False)
+    vals.sort_values("eue_mwh_per_year", ascending=False).to_csv(tbl, index=False)
     return out, tbl, missing
 
 
@@ -140,8 +149,9 @@ def main() -> int:
     ap.add_argument("--system", default=None)
     ap.add_argument("--case", default=None,
                     help="case_id; default = high-DC no-DR reference")
-    ap.add_argument("--metric", default="mean_eue_mwh",
-                    choices=["mean_eue_mwh", "total_eue_mwh", "neue_ppm"])
+    ap.add_argument("--metric", default="eue_mwh_per_year",
+                    choices=["eue_mwh_per_year", "mean_eue_mwh",
+                             "total_eue_mwh", "neue_ppm"])
     ap.add_argument("--shapefile", default=str(DEFAULT_SHAPEFILE))
     ap.add_argument("--bins", default=None,
                     help="comma-separated bin edges, e.g. '0,0.001,0.01,0.1,1,10'; "
@@ -167,7 +177,7 @@ def main() -> int:
         parts = []
         if case != default_case:
             parts.append(case)
-        if args.metric != "mean_eue_mwh":
+        if args.metric != "eue_mwh_per_year":
             parts.append(args.metric)
         suffix = ("_" + "_".join(parts)) if parts else ""
         print(f"\n=== {system} ===  case={case}  metric={args.metric}")

@@ -44,3 +44,17 @@ saturation:
 # Report extremes as aggregates over this many hours rather than single-hour
 # anecdotes; per-hour EUE means are much noisier than the case-level stderr.
 top_hours: 100
+
+# Extra DR cases to overlay on the WHEN figure (<system>_when.png), on top of
+# the base-DC and high-DC references. Each is drawn as a line showing the share
+# of THAT case's own EUE per weather-year / month / hour bin, so the reader can
+# see whether DR moves *when* EUE occurs, not just how much. Cases not present
+# in a given system's registry (e.g. these shed cases in ERCOT) are skipped.
+when_overlay_cases:
+  - shed_1h_timeseries
+  - shed_4h_all_1.00
+  - shed_8h_all_1.00
+  - shed_16h_all_1.00
+  - shift_4h_all_1.00
+  - shift_8h_all_1.00
+  - shift_16h_all_1.00

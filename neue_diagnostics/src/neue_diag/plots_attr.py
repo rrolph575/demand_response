@@ -11,6 +11,48 @@ import numpy as np  # noqa: E402
 BASE_C = "#4C72B0"
 HIGH_C = "#C44E52"
 
+# Color/marker per energy-hours for the WHEN overlays, matching the saturation
+# figure's convention (1h purple diamond, 4h blue circle, 8h orange square,
+# 16h green triangle) so cases read the same across figures.
+OVERLAY_STYLE = {
+    "1h":  ("#8172B3", "D"),
+    "4h":  ("#4C72B0", "o"),
+    "8h":  ("#DD8452", "s"),
+    "16h": ("#55A868", "^"),
+}
+_OVERLAY_FALLBACK = ["#17BECF", "#BCBD22", "#E377C2", "#000000"]
+
+
+def _overlay_label(case_id: str) -> str:
+    """shed_4h_all_1.00 -> 'shed 4h 100%'; shed_1h_timeseries -> 'shed 1h'."""
+    cid = str(case_id)
+    if cid == "shed_1h_timeseries":
+        return "shed 1h (always on)"
+    parts = cid.split("_")
+    mode = parts[0] if parts else cid
+    hours = next((p for p in parts if p.endswith("h") and p[:-1].isdigit()), "")
+    frac = ""
+    try:
+        frac = f" {int(round(float(parts[-1]) * 100))}%"
+    except (ValueError, IndexError):
+        pass
+    return f"{mode} {hours}{frac}".strip()
+
+
+def _overlay_style(case_id: str, idx: int):
+    """(color, marker, filled) for a case. Color+marker encode energy-hours;
+    fill encodes mode -- shed filled, shift hollow -- so a shift case reuses its
+    shed counterpart's symbol as an open marker."""
+    parts = str(case_id).split("_")
+    mode = parts[0] if parts else ""
+    hours = next((p for p in parts if p.endswith("h") and p[:-1].isdigit()), None)
+    filled = mode != "shift"
+    if hours in OVERLAY_STYLE:
+        color, marker = OVERLAY_STYLE[hours]
+    else:
+        color, marker = _OVERLAY_FALLBACK[idx % len(_OVERLAY_FALLBACK)], "v"
+    return color, marker, filled
+
 
 def make_all(cfg, system, where, when, why, hi, ba, ev, feats, scal, regions,
              ref_high, ref_base):
@@ -76,6 +118,9 @@ def _fig_when(cfg, system, where, when, why, hi, ba, ev, feats, scal, regions,
               ref_high, ref_base):
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.4))
 
+    # DR cases to overlay as lines, in the order stage 03 wrote them.
+    overlay = [s for s in when["scenario"].unique() if s not in ("base", "high")]
+
     for ax, dim, xlabel in (
         (axes[0], "weather_year", "weather year"),
         (axes[1], "month", "month"),
@@ -83,26 +128,48 @@ def _fig_when(cfg, system, where, when, why, hi, ba, ev, feats, scal, regions,
     ):
         b = when[(when.scenario == "base") & (when.dimension == dim)]
         h = when[(when.scenario == "high") & (when.dimension == dim)]
-        idx = sorted(set(b["bin"]) | set(h["bin"]))
+        # Union bins across every scenario so overlay lines and bars align.
+        # Sort numerically: all three plotted dims (weather_year/month/hour) are
+        # numeric, but bins read back from CSV are strings, which would otherwise
+        # sort lexically ("1","10","2",...).
+        idx = sorted(
+            set(b["bin"]) | set(h["bin"])
+            | set(when[when.dimension == dim]["bin"]),
+            key=lambda v: float(v),
+        )
         bs = b.set_index("bin")["share"].reindex(idx).fillna(0)
         hs = h.set_index("bin")["share"].reindex(idx).fillna(0)
         x = np.arange(len(idx))
-        ax.bar(x - 0.2, bs, width=0.38, color=BASE_C, label="base DC load")
-        ax.bar(x + 0.2, hs, width=0.38, color=HIGH_C, label="high DC load")
+        # Neutral greys for the two no-DR reference bars so the colored DR
+        # overlay lines (whose colors encode energy-hours) don't collide with
+        # them -- in particular the 4h line is the same blue as BASE_C.
+        ax.bar(x - 0.2, bs, width=0.38, color="#c7ccd1", label="base DC load",
+               zorder=1)
+        ax.bar(x + 0.2, hs, width=0.38, color="#7b8794", label="high DC load",
+               zorder=1)
+        for j, cid in enumerate(overlay):
+            s = (when[(when.scenario == cid) & (when.dimension == dim)]
+                 .set_index("bin")["share"].reindex(idx).fillna(0))
+            color, marker, filled = _overlay_style(cid, j)
+            # Markers only, no connecting line. shed = filled, shift = hollow.
+            ax.plot(x, s, color=color, marker=marker, ms=5.5, ls="none",
+                    mfc=color if filled else "none", mec=color, mew=1.4,
+                    label=_overlay_label(cid), zorder=3)
         ax.set_xticks(x)
         ax.set_xticklabels(idx, fontsize=7, rotation=90 if len(idx) > 13 else 0)
         ax.set_xlabel(xlabel)
         ax.set_ylabel("share of that scenario's EUE")
         ax.grid(alpha=0.25, axis="y")
-    axes[0].legend(fontsize=8)
+    # Two columns, upper-right inside the month panel -- that corner is empty
+    # (autumn months carry almost no EUE).
+    axes[1].legend(fontsize=7.5, ncol=2, loc="upper right", framealpha=0.9)
     axes[1].set_title(
-        f"{system.upper()} — WHEN does EUE occur? (each scenario normalized to 1)\n"
-        "similar bars ⇒ added load scales the problem; different bars ⇒ it moves it"
+        f"{system.upper()} — When does EUE occur? (each scenario normalized to 1)"
     )
 
     fig.tight_layout()
     p = cfg.figure_path(f"{system}_when.png")
-    fig.savefig(p, dpi=150)
+    fig.savefig(p, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return p
 

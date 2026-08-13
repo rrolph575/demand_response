@@ -12,22 +12,44 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-# Mode -> line style, so shed and shift stay distinguishable in greyscale.
+# Mode -> line style AND marker fill. shed and shift of the same energy-hours
+# share a color+marker (hours is the color/marker key), so mode also drives the
+# linestyle and whether the marker is filled (shift) or hollow (shed). The fill
+# is what keeps them apart in the legend, where the dashed/solid line sample is
+# too short to read under the marker.
 MODE_STYLE = {"shed": "--", "shift": "-", "mixed": ":"}
-HOURS_COLOR = {4.0: "#4C72B0", 8.0: "#DD8452", 16.0: "#55A868"}
-FALLBACK_COLORS = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B3", "#937860"]
+MODE_FILLED = {"shed": False, "shift": True, "mixed": True}
+# Energy-hours -> color AND marker. Both are keyed so that two families sharing
+# a linestyle (same mode) but differing in hours never collapse to the same
+# glyph. 1h (always-on shed) gets its own entry -- previously it fell through to
+# FALLBACK_COLORS, which reused HOURS_COLOR's hexes and made shed_1h render
+# identically to shed_8h (both dashed orange circles).
+HOURS_COLOR = {1.0: "#8172B3", 2.0: "#937860", 4.0: "#4C72B0",
+               8.0: "#DD8452", 16.0: "#55A868"}
+HOURS_MARKER = {1.0: "D", 2.0: "P", 4.0: "o", 8.0: "s", 16.0: "^"}
+# Only used for hours values not in the maps above; kept distinct from the
+# HOURS_COLOR hexes so a fallback can never duplicate a keyed color.
+FALLBACK_COLORS = ["#C44E52", "#000000", "#17BECF", "#BCBD22", "#E377C2"]
+FALLBACK_MARKERS = ["o", "s", "^", "D", "v", "*"]
 
 
 def _style_for(row, idx: int):
-    ls = MODE_STYLE.get(str(row.get("dr_mode")), "-")
-    hours = row.get("dr_energy_hours")
+    mode = str(row.get("dr_mode"))
+    ls = MODE_STYLE.get(mode, "-")
+    filled = MODE_FILLED.get(mode, True)
     try:
-        color = HOURS_COLOR.get(float(hours))
+        hours = float(row.get("dr_energy_hours"))
     except (TypeError, ValueError):
-        color = None
+        hours = None
+    color = HOURS_COLOR.get(hours)
+    marker = HOURS_MARKER.get(hours)
     if color is None:
         color = FALLBACK_COLORS[idx % len(FALLBACK_COLORS)]
-    return ls, color
+    if marker is None:
+        marker = FALLBACK_MARKERS[idx % len(FALLBACK_MARKERS)]
+    # Hollow marker for shed, filled for shift.
+    mfc = color if filled else "none"
+    return {"ls": ls, "color": color, "marker": marker, "mfc": mfc}
 
 
 def plot_saturation_curves(
@@ -45,21 +67,17 @@ def plot_saturation_curves(
     families = sorted(c_sys["case_family"].unique())
     for i, family in enumerate(families):
         c = c_sys[c_sys["case_family"] == family].sort_values("dr_fraction")
-        ls, color = _style_for(c.iloc[0], i)
+        st = _style_for(c.iloc[0], i)
         ax.plot(
-            c["dr_fraction"], c[metric], ls, color=color, marker="o", ms=3.5,
-            lw=1.6, label=family,
+            c["dr_fraction"], c[metric], st["ls"], color=st["color"],
+            marker=st["marker"], mfc=st["mfc"], ms=5.5, lw=1.6, label=family,
         )
         ax2.plot(
             c["dr_fraction"].iloc[1:],
             c["marginal_return_per_fraction"].iloc[1:],
-            ls, color=color, marker="o", ms=3.5, lw=1.6, label=family,
+            st["ls"], color=st["color"], marker=st["marker"], mfc=st["mfc"],
+            ms=5.5, lw=1.6, label=family,
         )
-        if annotate_knees and family in s_sys.index:
-            knee = s_sys.loc[family, "knee_kneedle"]
-            if knee is not None and np.isfinite(knee):
-                yk = np.interp(knee, c["dr_fraction"], c[metric])
-                ax.plot([knee], [yk], marker="v", ms=9, color=color, mec="k", mew=0.5)
 
     anchor = c_sys[c_sys["is_anchor"]][metric].iloc[0]
     ax.axhline(anchor, color="0.35", lw=1.1, ls=":", zorder=0)
@@ -71,16 +89,17 @@ def plot_saturation_curves(
     base = c_sys[f"ref_base_{metric}"].iloc[0]
     if np.isfinite(base):
         ax.axhline(base, color="#C44E52", lw=1.1, ls="-.", zorder=0)
+        # Right-aligned so the label clears the lower-left legend box.
         ax.annotate(
             f"base DC load (target): {base:.4f}",
-            xy=(0.02, base), xytext=(0.02, base), fontsize=8, color="#C44E52",
-            va="bottom",
+            xy=(0.98, base), xytext=(0.98, base), fontsize=8, color="#C44E52",
+            ha="right", va="bottom",
         )
         ax.set_ylim(bottom=min(base * 0.85, c_sys[metric].min() * 0.95))
 
     ax.set_xlabel("DR fraction of added datacenter load")
     ax.set_ylabel(metric)
-    ax.set_title(f"{system.upper()} — saturation curve\n▼ = kneedle knee")
+    ax.set_title(f"{system.upper()} — saturation curve")
     ax.legend(fontsize=7.5, ncol=2)
     ax.grid(alpha=0.25)
 
@@ -105,10 +124,10 @@ def plot_return_per_mw(curves, system: str, metric: str, path):
     fig, ax = plt.subplots(figsize=(7.2, 5))
     for i, family in enumerate(sorted(c_sys["case_family"].unique())):
         c = c_sys[c_sys["case_family"] == family].sort_values("borrow_mw")
-        ls, color = _style_for(c.iloc[0], i)
+        st = _style_for(c.iloc[0], i)
         ax.plot(
-            c["borrow_mw"], c["reduction"], ls, color=color, marker="o", ms=3.5,
-            lw=1.6, label=family,
+            c["borrow_mw"], c["reduction"], st["ls"], color=st["color"],
+            marker=st["marker"], mfc=st["mfc"], ms=5.5, lw=1.6, label=family,
         )
     ax.set_xlabel("DR borrow capacity deployed (MW)")
     ax.set_ylabel(f"{metric} reduction vs no-DR")
@@ -136,10 +155,11 @@ def plot_availability_overlap(overlap, system: str, path):
     fig, ax = plt.subplots(figsize=(7.6, 5))
     for i, family in enumerate(sorted(o["case_family"].unique())):
         sub = o[o["case_family"] == family].sort_values("dr_fraction")
-        ls, color = _style_for(sub.iloc[0], i)
+        st = _style_for(sub.iloc[0], i)
         ax.plot(
-            sub["dr_fraction"], sub["eue_in_window_frac"], ls, color=color,
-            marker="o", ms=3.5, lw=1.6, label=family,
+            sub["dr_fraction"], sub["eue_in_window_frac"], st["ls"],
+            color=st["color"], marker=st["marker"], mfc=st["mfc"], ms=5.5,
+            lw=1.6, label=family,
         )
     ax.axhline(1.0, color="0.4", lw=1.0, ls=":")
     ax.set_ylim(-0.03, 1.08)
