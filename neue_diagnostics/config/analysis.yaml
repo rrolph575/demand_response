@@ -51,10 +51,4 @@ top_hours: 100
 # see whether DR moves *when* EUE occurs, not just how much. Cases not present
 # in a given system's registry (e.g. these shed cases in ERCOT) are skipped.
 when_overlay_cases:
-  - shed_1h_timeseries
-  - shed_4h_all_1.00
-  - shed_8h_all_1.00
-  - shed_16h_all_1.00
-  - shift_4h_all_1.00
-  - shift_8h_all_1.00
-  - shift_16h_all_1.00
+  - shed_1h_timeseries   # always-on 100% shed -- the only case analyzed now

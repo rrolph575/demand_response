@@ -23,21 +23,35 @@ systems:
     # DC-penalty math ambiguous. shed_1h_timeseries is NOT excluded -- it is a real
     # high-DC sensitivity (always-on 100% shed, schema 2).
     exclude: [baseline_zero_dr]
-    # UTC offset for "local" time framing in plots (hours). PJM = Eastern.
-    # NOTE: separate from the DR availability convention, which is a fixed
-    # UTC-5 for ALL systems (see analysis.yaml: dr_avail_utc_offset).
-    local_utc_offset: -5
+    # Hours to add to the file timestamps to reach this system's LOCAL time.
+    # The PRAS timestamps are stamped +00:00 but the data is really Central
+    # Standard Time (UTC-6): ReEDS converts UTC weather to tz_out='Etc/GMT+6'
+    # (= UTC-6) for every region -- confirmed in ReEDS input_processing/
+    # outage_rates.py and by solar centroids landing on the CST prediction to
+    # <0.1 h for both systems. PJM is Eastern, one hour AHEAD of Central, so
+    # +1 converts the stored CST hour to Eastern local. (Was -5 originally,
+    # then 0; +1 is the final value.) NOTE: separate from the DR availability
+    # convention (analysis.yaml: dr_avail_utc_offset), left as-is.
+    local_utc_offset: 1
     pras:
       base: PJM_PRAS_2032i0_neue1.pras
       high: PJM_PRAS_2032i0_neue1_eer_central.pras
+    # Always-on shed (shed_1h_timeseries) deep-dive -- the only DR case analyzed
+    # as of 2026-09. Lives in the *_samples/ dir, separate from the sweep above;
+    # resolves against sweep_root. PJM's copy here is identical to the one in
+    # results_subdir; ERCOT's exists ONLY in its _samples dir.
+    always_on_shed_h5: pjm_neue1_samples/results/shed_1h_timeseries.h5
   ercot:
     label: ERCOT
     results_subdir: ercot_neue1/results
     cases_csv: ercot_neue1/cases.csv
-    local_utc_offset: -6
+    # 0: the data's native frame is Central Standard Time (see PJM note), and
+    # ERCOT *is* Central, so the stored hour is already ERCOT local. Was -6.
+    local_utc_offset: 0
     pras:
       base: ERCOT_PRAS_2032i1_neue1.pras
       high: ERCOT_PRAS_2032i1_neue1_eer_central.pras
+    always_on_shed_h5: ercot_neue1_samples/results/shed_1h_timeseries.h5
 
 # Python environment used by the slurm wrappers. Verified to contain
 # h5py/numpy/pandas/matplotlib/pyyaml. Deliberately no pyarrow dependency.
