@@ -25,6 +25,8 @@ import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+plt.rcParams.update({"font.size": 16})   # bigger fonts throughout
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.patches import Patch, Rectangle  # noqa: E402
@@ -34,7 +36,7 @@ from neue_diag.config import load_config  # noqa: E402
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-WIN_C = "#1f77ff"
+WIN_C = "#00c000"   # winter box: green (more visible than blue on the wind panel)
 SUM_C = "#d62728"
 DR_WINTER_MONTHS = (1, 2)
 DR_SUMMER_MONTHS = (6, 8)
@@ -76,8 +78,6 @@ def _grid(df, col):
     return grid
 
 
-DR_HATCH_C = "#20e000"   # bright green hatch marking DR-dispatch cells
-DR_HATCH_FRAC = 0.10     # hatch cells with mean dispatch >= this * peak cell
 
 
 def shed_data(cfg, system, frac=0.5):
@@ -109,24 +109,16 @@ def shed_data(cfg, system, frac=0.5):
     return grid, windows
 
 
-def _draw_heatmap(fig, ax, grid, cmap, title, cbar_label, windows, tz,
-                  dr_grid=None):
+def _draw_heatmap(fig, ax, grid, cmap, title, cbar_label, windows,
+                  vmin=None, vmax=None):
     im = ax.imshow(grid, aspect="auto", origin="upper", cmap=cmap,
-                   extent=[-0.5, 23.5, 11.5, -0.5])
+                   extent=[-0.5, 23.5, 11.5, -0.5], vmin=vmin, vmax=vmax)
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cb.set_label(cbar_label)
+    cb.set_label(cbar_label, fontsize=15)
     ax.set_yticks(range(12)); ax.set_yticklabels(MONTHS)
     ax.set_xticks(range(0, 24, 3))
-    ax.set_xlabel(f"hour of day ({tz} local)")
-    ax.set_title(title)
-    # bright-green hatch on cells where mean dispatch >= 10% of the peak cell,
-    # i.e. where the shed is meaningfully active (not every faintly-nonzero cell)
-    if dr_grid is not None and dr_grid.max() > 0:
-        thr = DR_HATCH_FRAC * dr_grid.max()
-        for m, h in zip(*np.where(dr_grid >= thr)):
-            ax.add_patch(Rectangle((h - 0.5, m - 0.5), 1, 1, facecolor="none",
-                                   edgecolor=DR_HATCH_C, hatch="///", lw=0.0,
-                                   zorder=3))
+    ax.set_xlabel("hour of day")
+    ax.set_title(title, fontsize=19)
     for hrs, months, c in ((windows["winter"], DR_WINTER_MONTHS, WIN_C),
                            (windows["summer"], DR_SUMMER_MONTHS, SUM_C)):
         ax.add_patch(Rectangle(
@@ -136,41 +128,38 @@ def _draw_heatmap(fig, ax, grid, cmap, title, cbar_label, windows, tz,
 
 
 def make_fig(cfg, system):
-    label = cfg.system(system).get("label", system.upper())
-    tz = tz_label(cfg, system)
     df = load_series(cfg, system)
-    dr_grid, windows = shed_data(cfg, system)
+    _, windows = shed_data(cfg, system)
 
-    fig = plt.figure(figsize=(19, 11))
-    gs = fig.add_gridspec(2, 3, hspace=0.35, wspace=0.3)
+    # Layout: Total Load / Solar / Wind stacked as equal-size rows in a left
+    # column, with a bigger Net Load panel on the right spanning all three rows.
+    fig = plt.figure(figsize=(15, 12))
+    gs = fig.add_gridspec(3, 2, width_ratios=[1, 1.35], hspace=0.4, wspace=0.28)
 
     _draw_heatmap(fig, fig.add_subplot(gs[0, 0]), _grid(df, "load_gw"), "Greys",
-                  "Total Load", "mean load (GW)", windows, tz, dr_grid=dr_grid)
-    _draw_heatmap(fig, fig.add_subplot(gs[0, 1]), _grid(df, "solar_gw"),
+                  "Total Load", "mean load (GW)", windows)
+    _draw_heatmap(fig, fig.add_subplot(gs[1, 0]), _grid(df, "solar_gw"),
                   "YlOrBr", "Solar Generation", "mean available solar (GW)",
-                  windows, tz, dr_grid=dr_grid)
-    _draw_heatmap(fig, fig.add_subplot(gs[0, 2]), _grid(df, "wind_gw"), "Blues",
-                  "Wind Generation", "mean available wind (GW)", windows, tz,
-                  dr_grid=dr_grid)
-
-    # --- bottom row: net load = load - solar - wind, centered ---
-    _draw_heatmap(fig, fig.add_subplot(gs[1, 1]), _grid(df, "net_load_gw"),
+                  windows)
+    _draw_heatmap(fig, fig.add_subplot(gs[2, 0]), _grid(df, "wind_gw"),
+                  "Blues", "Wind Generation", "mean available wind (GW)",
+                  windows)
+    _draw_heatmap(fig, fig.add_subplot(gs[0:3, 1]), _grid(df, "net_load_gw"),
                   "Purples", "Net Load  (load − solar − wind)",
-                  "mean net load (GW)", windows, tz, dr_grid=dr_grid)
+                  "mean net load (GW)", windows)
 
     handles = [
         Patch(facecolor="none", edgecolor=WIN_C, lw=2.2,
               label=f"winter DR window (Jan–Feb, {_win_lbl(windows['winter'])})"),
         Patch(facecolor="none", edgecolor=SUM_C, lw=2.2,
               label=f"summer DR window (Jun–Aug, {_win_lbl(windows['summer'])})"),
-        Patch(facecolor="none", edgecolor=DR_HATCH_C, hatch="///",
-              label=f"DR dispatched (≥{DR_HATCH_FRAC:.0%} of peak)"),
     ]
-    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=11,
+    fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=15,
                frameon=True, bbox_to_anchor=(0.5, 0.005))
-    fig.suptitle(
-        f"{label} — load & generation by month and hour "
-        f"(mean over 15 weather years, {tz} local)", fontsize=14)
+    # System name in the upper-right corner (same size as subpanel titles).
+    label = cfg.system(system).get("label", system.upper())
+    fig.text(0.995, 0.995, label, ha="right", va="top", fontsize=19,
+             fontweight="bold")
     out = cfg.figure_path(f"{system}_load_gen_panels.png")
     fig.savefig(out, dpi=140, bbox_inches="tight")
     plt.close(fig)

@@ -26,9 +26,13 @@ import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+plt.rcParams.update({"font.size": 14})   # bigger fonts throughout
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.ticker import FuncFormatter  # noqa: E402
 
 from neue_diag import io_results  # noqa: E402
 from neue_diag.config import load_config  # noqa: E402
@@ -37,8 +41,9 @@ USED_C = "#d62728"   # DR used
 NODR_C = "#555555"   # DR not used
 BAR_C = "#9ecae1"    # % of days DR on (secondary-axis bars)
 BAR_EDGE = "#2b6ca3"
+SEASON_C = "#00008b"   # dark blue for the winter/summer row labels
 _TZ = {-2: "Pacific", -1: "Mountain", 0: "Central", 1: "Eastern"}
-SEASONS = (("winter (Jan–Feb)", (1, 2)), ("summer (Jun–Aug)", (6, 8)))
+SEASONS = (("Winter (Jan–Feb)", (1, 2)), ("Summer (Jun–Aug)", (6, 8)))
 QTYS = (("Total Load", "feat__load_high_mw", "total load (GW)"),
         ("Net Load", "feat__net_load_mw", "net load (GW)"),
         ("Solar Generation", "feat__cap_solar_mw", "solar generation (GW)"),
@@ -97,10 +102,10 @@ def make_fig(cfg, system, region, mode="perhour"):
     fi, si = d["freg"].index(region), d["sreg"].index(region)
     dr = d["dr"][:, si]
     month, hour, day = d["month"], d["hour"], d["day"]
-    tz = _TZ.get(int(cfg.system(system).get("local_utc_offset", 0)), "local")
 
     fig, axes = plt.subplots(len(SEASONS), len(QTYS), figsize=(19, 8),
                              sharex=True)
+    series = {}   # (season i, quantity j) -> (on_diurnal, off_diurnal)
     for i, (sname, months) in enumerate(SEASONS):
         in_season = (month >= months[0]) & (month <= months[1])
         on, off, lon, loff = _masks(mode, in_season, dr, day)
@@ -120,40 +125,62 @@ def make_fig(cfg, system, region, mode="perhour"):
                 ax2.set_ylim(0, 50)   # shared scale so winter/summer compare
                 ax.set_zorder(ax2.get_zorder() + 1)   # lines above bars
                 ax.patch.set_visible(False)
-                ax2.tick_params(axis="y", labelcolor=BAR_EDGE, labelsize=7)
+                ax2.tick_params(axis="y", labelcolor=BAR_EDGE, labelsize=14)
                 if j == len(QTYS) - 1:
-                    ax2.set_ylabel("% of season's days DR on at that hour",
-                                   color=BAR_EDGE)
-            l1, = ax.plot(range(24), _diurnal(qty, hour, on), "-o", color=USED_C,
-                          ms=3, lw=1.8, label=lon)
-            l2, = ax.plot(range(24), _diurnal(qty, hour, off), "--", color=NODR_C,
-                          lw=1.6, label=loff)
+                    ax2.set_ylabel("% of days\nDR on (that hour)",
+                                   color=BAR_EDGE, fontsize=15)
+            on_arr, off_arr = _diurnal(qty, hour, on), _diurnal(qty, hour, off)
+            series[(i, j)] = (on_arr, off_arr)
+            ax.plot(range(24), on_arr, "-o", color=USED_C, ms=3, lw=1.8)
+            ax.plot(range(24), off_arr, "--", color=NODR_C, lw=1.6)
             ax.grid(alpha=0.25)
             if i == 0:
-                ax.set_title(qname)
+                ax.set_title(qname, fontsize=17)
             # y-label names the quantity; the leftmost column also carries the
-            # season as a row header above it.
-            ax.set_ylabel(f"{sname}\n\n{ylab}" if j == 0 else ylab)
+            # season as a dark-blue rotated row header to its left.
+            ax.set_ylabel(ylab, fontsize=14)
+            if j == 0:
+                ax.text(-0.42, 0.5, sname, transform=ax.transAxes, rotation=90,
+                        va="center", ha="center", color=SEASON_C, fontsize=19,
+                        fontweight="bold")
             if i == len(SEASONS) - 1:
-                ax.set_xlabel(f"hour of day ({tz} local)")
+                ax.set_xlabel("hour of day", fontsize=15)
             ax.set_xticks(range(0, 24, 3))
-            handles = [l1, l2]
-            if pct is not None:
-                handles.append(Patch(facecolor=BAR_C, alpha=0.6,
-                                     label="% days DR on (right axis)"))
-            ax.legend(handles=handles, fontsize=6)
 
+    # Shared y-limits so winter/summer rows align (and Total Load / Net Load
+    # share one scale to be comparable). Generation panels start at 0 so the
+    # bottom baselines line up. Column order: 0=Total Load, 1=Net Load,
+    # 2=Solar, 3=Wind.
+    def _rng(js, floor=None, pad=0.05):
+        vals = np.concatenate([np.concatenate(series[(i, j)])
+                               for (i, j) in series if j in js])
+        vals = vals[np.isfinite(vals)]
+        lo, hi = float(vals.min()), float(vals.max())
+        span = (hi - lo) or 1.0
+        return (floor if floor is not None else lo - pad * span, hi + pad * span)
+
+    ylims = {0: _rng({0, 1}), 1: _rng({0, 1}),
+             2: _rng({2}, floor=0.0), 3: _rng({3}, floor=0.0)}
+    for (i, j) in series:
+        axes[i, j].set_ylim(ylims[j])
+        if j == 3:   # wind: show "0" not "0.00" (and drop trailing zeros)
+            axes[i, j].yaxis.set_major_formatter(
+                FuncFormatter(lambda x, _: f"{x:g}"))
+
+    suffix = "" if mode == "perhour" else "_dayclass"
+    on_lbl, off_lbl = (("DR on", "DR off") if mode == "perhour"
+                       else ("DR-event days", "normal days"))
+    lg = [Line2D([0], [0], color=USED_C, marker="o", lw=1.8, ms=6, label=on_lbl),
+          Line2D([0], [0], color=NODR_C, lw=1.6, ls="--", label=off_lbl)]
     if mode == "perhour":
-        sub, suffix = ("conditions when the always-on shed is used vs not\n"
-                       "(same season & hour; solid = DR on, dashed = DR off)", "")
-    else:
-        sub, suffix = ("full-day conditions on DR-event days vs normal days\n"
-                       "(day = DR fired at any hour; solid = DR-event day, "
-                       "dashed = normal day)", "_dayclass")
-    fig.suptitle(
-        f"{cfg.system(system).get('label', system.upper())} region {region} — "
-        + sub, fontsize=13)
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+        lg.append(Patch(facecolor=BAR_C, alpha=0.7,
+                        label="% of days DR on (right axis)"))
+    # System name in the top-right corner; single legend row across the top.
+    fig.legend(handles=lg, loc="upper center", ncol=len(lg), fontsize=15,
+               frameon=False, bbox_to_anchor=(0.5, 0.995))
+    fig.text(0.997, 0.985, cfg.system(system).get("label", system.upper()),
+             ha="right", va="top", fontsize=22, fontweight="bold")
+    fig.tight_layout(rect=[0, 0, 1, 0.955])
     out = cfg.figure_path(f"{system}_dr_conditions{suffix}_{region}.png")
     fig.savefig(out, dpi=140, bbox_inches="tight")
     plt.close(fig)
